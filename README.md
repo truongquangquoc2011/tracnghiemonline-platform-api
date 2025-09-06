@@ -130,13 +130,13 @@ Developed by the talented **New Bie Coder Team**:
     </td>
     <td align="center">
       <a href="https://github.com/nguyenthanhsang">
-        <img src="https://github.com/Shangfarm" width="100px;" alt="Nguyễn Thanh Sang"/>
+        <img src="https:/avatars.githubusercontent.com/Shangfarm" width="100px;" alt="Nguyễn Thanh Sang"/>
         <br /><sub><b>Nguyễn Thanh Sang</b></sub>
       </a><br />💻
     </td>
     <td align="center">
       <a href="https://github.com/maikivix">
-        <img src="https://github.com/Vix1311" width="100px;" alt="Mai Kỳ Vĩ"/>
+        <img src="https://avatars.githubusercontent.com/Vix1311" width="100px;" alt="Mai Kỳ Vĩ"/>
         <br /><sub><b>Mai Kỳ Vĩ</b></sub>
       </a><br />💻
     </td>
