@@ -7,7 +7,7 @@ import { z } from 'zod'
 // Load .env
 const ENV_PATH = path.resolve('.env')
 if (!fs.existsSync(ENV_PATH)) {
-  Logger.error(`❌ Configuration file "${ENV_PATH}" not found.`)
+  Logger.error(`Configuration file "${ENV_PATH}" not found.`)
   process.exit(1)
 }
 loadDotenv({ path: ENV_PATH })
@@ -25,7 +25,7 @@ const EnvSchema = z.object({
 // Parse & validate
 const parsed = EnvSchema.safeParse(process.env)
 if (!parsed.success) {
-  Logger.error('❌ Invalid environment variables:', parsed.error.format())
+  Logger.error('Invalid environment variables:', parsed.error.format())
   process.exit(1)
 }
 
