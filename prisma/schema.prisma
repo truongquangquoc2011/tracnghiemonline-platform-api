@@ -1,0 +1,282 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  email            String    @unique
+  password         String
+  firstName        String
+  lastName         String
+  phone            String
+  address          String?
+  city             String?
+  state            String?
+  country          String    @default("VN")
+  postalCode       String?
+  dateOfBirth      DateTime?
+  profilePicture   String?
+  linkedInUrl      String?
+  githubUrl        String?
+  portfolioUrl     String?
+  personalWebsite  String?
+  profileSummary   String?
+  role             String    @default("client")
+  subscriptionPlan String    @default("free")
+  subscriptionExpiry DateTime?
+  isEmailVerified  Boolean   @default(false)
+  isPhoneVerified  Boolean   @default(false)
+  lastLoginAt      DateTime?
+  timezone         String    @default("Asia/Ho_Chi_Minh")
+  language         String    @default("vi")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  isActive         Boolean   @default(true)
+  deletedAt        DateTime?
+
+  // Auth Relations
+  userRoles              UserRole[]
+  userPermissions        UserPermission[]
+  refreshTokens          RefreshToken[]
+  devices                Device[]
+  loginSessions          LoginSession[]
+  verificationCodes      VerificationCode[]
+
+  rolesCreated           Role[]            @relation("RoleCreatedBy")
+  rolePermissionsGranted RolePermission[]  @relation("RolePermissionGrantedBy")
+  userRolesAssigned      UserRole[]        @relation("UserRoleAssignedBy")
+  userPermissionsGranted UserPermission[]  @relation("UserPermissionGrantedBy")
+  refreshTokensRevoked   RefreshToken[]    @relation("RefreshTokenRevokedBy")
+
+  @@map("users")
+}
+
+model Role {
+    id               String    @id @default(auto()) @map("_id") @db.ObjectId
+    name             String    @unique // admin, employer, candidate, moderator
+    slug             String    @unique
+    displayName      String
+    description      String?
+    level            Int       @default(0) // Role hierarchy level (0=lowest, 100=highest)
+    isSystemRole     Boolean   @default(false) // Cannot be deleted/modified
+    isActive         Boolean   @default(true)
+    permissions      Json?     // Quick access permissions cache
+    createdBy        String?   @db.ObjectId
+    createdAt        DateTime  @default(now())
+    updatedAt        DateTime  @updatedAt
+
+    // Relations
+    creator          User?     @relation("RoleCreatedBy", fields: [createdBy], references: [id])
+    rolePermissions  RolePermission[]
+    userRoles        UserRole[]
+
+    @@map("roles")
+  }
+
+model Permission {
+  id                   String    @id @default(auto()) @map("_id") @db.ObjectId
+  name                 String    @unique // users:read, cvs:create, jobs:delete
+  slug                 String    @unique
+  displayName          String
+  description          String?
+  resource             String    // users, cvs, jobs, companies, etc.
+  action               String    // create, read, update, delete, manage
+  conditions           Json?     // Additional conditions for permission
+  category             String?   // user-management, cv-management, job-management
+  isSystemPermission   Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  rolePermissions      RolePermission[]
+  userPermissions      UserPermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  roleId        String    @db.ObjectId
+  permissionId  String    @db.ObjectId
+  conditions    Json?     // Role-specific conditions for this permission
+  isGranted     Boolean   @default(true) // true=granted, false=denied
+  grantedBy     String?   @db.ObjectId
+  grantedAt     DateTime  @default(now())
+
+  // Relations
+  role          Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission    Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  grantor       User?     @relation("RolePermissionGrantedBy", fields: [grantedBy], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String    @db.ObjectId
+  roleId      String    @db.ObjectId
+  assignedBy  String?   @db.ObjectId
+  assignedAt  DateTime  @default(now())
+  expiresAt   DateTime? // Role expiration date, null = permanent
+  isActive    Boolean   @default(true)
+  metadata    Json?     // Additional role assignment metadata
+
+  // Relations
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignor    User?     @relation("UserRoleAssignedBy", fields: [assignedBy], references: [id])
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model UserPermission {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String    @db.ObjectId
+  permissionId  String    @db.ObjectId
+  isGranted     Boolean   @default(true) // true=granted, false=denied (override)
+  conditions    Json?     // User-specific conditions
+  grantedBy     String?   @db.ObjectId
+  grantedAt     DateTime  @default(now())
+  expiresAt     DateTime? // Permission expiration date
+  reason        String?   // Reason for granting/denying this permission
+
+  // Relations
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission    Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  grantor       User?     @relation("UserPermissionGrantedBy", fields: [grantedBy], references: [id])
+
+  @@unique([userId, permissionId])
+  @@map("user_permissions")
+}
+
+model RefreshToken {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String    @db.ObjectId
+  token          String    @unique
+  deviceId       String?   @db.ObjectId
+  expiresAt      DateTime
+  isRevoked      Boolean   @default(false)
+  revokedAt      DateTime?
+  revokedBy      String?   @db.ObjectId // Admin who revoked the token
+  revokedReason  String?   // Reason for token revocation
+  lastUsedAt     DateTime?
+  usageCount     Int       @default(0)
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device         Device?   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  revoker        User?     @relation("RefreshTokenRevokedBy", fields: [revokedBy], references: [id])
+  loginSessions  LoginSession[]
+
+  @@map("refresh_tokens")
+}
+
+model Device {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String    @db.ObjectId
+  deviceId          String    @unique // Unique device identifier
+  deviceName        String?   // User-defined device name
+  deviceType        String?   // mobile, desktop, tablet, tv, watch
+  platform          String?   // iOS, Android, Windows, macOS, Linux, Web
+  browser           String?   // Chrome, Firefox, Safari, Edge, etc.
+  browserVersion    String?
+  os                String?   // Operating system
+  osVersion         String?
+  appVersion        String?   // App version if mobile
+  pushToken         String?   // Push notification token
+  fingerprint       String?   // Device fingerprint
+  ipAddress         String?
+  location          Json?     // Last known location {country, city, lat, lng}
+  isTrusted         Boolean   @default(false) // User-marked trusted device
+  isActive          Boolean   @default(true)
+  isBlocked         Boolean   @default(false)
+  lastSeenAt        DateTime?
+  firstSeenAt       DateTime  @default(now())
+  loginCount        Int       @default(0)
+  sessionCount      Int       @default(0) // Number of active sessions
+  maxSessions       Int       @default(5) // Max concurrent sessions
+  twoFactorEnabled  Boolean   @default(false)
+  biometricEnabled  Boolean   @default(false)
+  metadata          Json?     // Additional device metadata
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens     RefreshToken[]
+  loginSessions     LoginSession[]
+  verificationCodes VerificationCode[]
+  @@unique([userId, deviceId])
+  @@map("devices")
+}
+
+model LoginSession {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String    @db.ObjectId
+  deviceId         String?   @db.ObjectId
+  sessionId        String    @unique
+  refreshTokenId   String?   @db.ObjectId
+  ipAddress        String?
+  userAgent        String?
+  location         Json?     // Login location
+  loginMethod      String?   // password, google, facebook, apple, etc.
+  twoFactorUsed    Boolean   @default(false)
+  loginAt          DateTime  @default(now())
+  lastActivityAt   DateTime?
+  logoutAt         DateTime?
+  isActive         Boolean   @default(true)
+  duration         Int?      // Session duration in seconds
+  metadata         Json?
+
+  // Relations
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device           Device?   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  refreshToken     RefreshToken? @relation(fields: [refreshTokenId], references: [id])
+
+  @@map("login_sessions")
+}
+
+model VerificationCode {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String?   @db.ObjectId
+  email        String?
+  phone        String?
+  code         String
+  hashedCode   String    // Hashed version of code
+  type         String    // email_verification, phone_verification, password_reset, two_factor, login_code
+  purpose      String?   // Specific purpose of verification
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(3)
+  isUsed       Boolean   @default(false)
+  usedAt       DateTime?
+  expiresAt    DateTime
+  ipAddress    String?
+  userAgent    String?
+  deviceId     String?   @db.ObjectId
+  metadata     Json?     // Additional verification metadata
+  createdAt    DateTime  @default(now())
+
+  // Relations
+  user         User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device       Device?   @relation(fields: [deviceId], references: [id])
+
+   @@unique([type , code], name: "type_code", map: "type_code")
+}
