@@ -60,6 +60,18 @@ model User {
   userPermissionsGranted UserPermission[]  @relation("UserPermissionGrantedBy")
   refreshTokensRevoked   RefreshToken[]    @relation("RefreshTokenRevokedBy")
 
+  // Kahoot & related modules
+  kahoots        Kahoot[]          @relation("UserKahoots")
+  hostedLobbies  LobbySession[]    @relation("UserHostedLobbies")
+  lobbyPlayers   LobbyPlayer[]     @relation("UserLobbyPlayers")
+  challenges     Challenge[]       @relation("UserChallenges")
+  challengeAttempts ChallengeAttempt[] @relation("UserChallengeAttempts")
+  gameReports    GameReport[]      @relation("UserGameReports")
+  reportPlayers  ReportPlayer[]    @relation("UserReportPlayers")
+  favorites      Favorite[]        @relation("UserFavorites")
+  comments       Comment[]         @relation("UserComments")
+  auditLogs      AuditLog[]        @relation("UserAuditLogs")
+  files          File[]            @relation("UserFiles")
   @@map("users")
 }
 
@@ -279,4 +291,397 @@ model VerificationCode {
   device       Device?   @relation(fields: [deviceId], references: [id])
 
    @@unique([type , code], name: "type_code", map: "type_code")
+}
+
+////////////////////////////////////////////////////////////
+// KAHOOT BANK (Bộ câu hỏi theo phong cách Kahoot!)
+////////////////////////////////////////////////////////////
+
+enum KahootVisibility { 
+  public
+  unlisted
+  private
+}
+
+enum AnswerShape { 
+  triangle
+  diamond
+  circle
+  square
+}
+
+model Kahoot {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId       String   @db.ObjectId
+  title         String
+  description   String?
+  visibility    KahootVisibility @default(public)
+  coverImage    String?
+  theme         String?
+  musicTheme    String?
+  isTeamModeOk  Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  publishedAt   DateTime?
+
+  // Relations
+  owner         User     @relation("UserKahoots", fields: [ownerId], references: [id], onDelete: Cascade)
+  questions     KahootQuestion[]
+  kahootTags    KahootTag[]
+  favorites     Favorite[]
+  comments      Comment[]
+  lobbies       LobbySession[]
+  challenges    Challenge[]
+  reports       GameReport[]
+
+  @@index([ownerId])
+  @@index([visibility])
+  @@map("kahoots")
+}
+
+model KahootQuestion {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  kahootId        String   @db.ObjectId
+  text            String?
+  imageUrl        String?
+  videoUrl        String?
+  orderIndex      Int
+  timeLimit       Int
+  pointsMultiplier Float
+  isMultipleSelect Boolean @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  // Relations
+  kahoot          Kahoot   @relation(fields: [kahootId], references: [id], onDelete: Cascade)
+  answers         KahootAnswer[]
+  responses       LobbyPlayerResponse[]
+  challengeResponses ChallengeResponse[]
+
+  @@index([kahootId, orderIndex])
+  @@map("kahoot_questions")
+}
+
+model KahootAnswer {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  questionId  String      @db.ObjectId
+  text        String?
+  isCorrect   Boolean     @default(false)
+  shape       AnswerShape
+  colorHex    String?
+  orderIndex  Int
+
+  // Relations
+  question    KahootQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  responses   LobbyPlayerResponse[]
+  challengeResponses ChallengeResponse[]
+
+  @@index([questionId])
+  @@map("kahoot_answers")
+}
+
+model Tag {
+  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  name  String @unique
+  kind  String?
+
+  kahootTags KahootTag[]
+
+  @@map("tags")
+}
+
+model KahootTag {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  kahootId String @db.ObjectId
+  tagId    String @db.ObjectId
+
+  // Relations
+  kahoot   Kahoot @relation(fields: [kahootId], references: [id], onDelete: Cascade)
+  tag      Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([kahootId, tagId])
+  @@map("kahoot_tags")
+}
+
+////////////////////////////////////////////////////////////
+// LIVE LOBBY
+////////////////////////////////////////////////////////////
+
+enum LobbyMode { 
+  classic
+  team
+}
+
+enum LobbyStatus { 
+  waiting
+  running
+  ended
+}
+
+model LobbySession {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  kahootId            String   @db.ObjectId
+  hostId              String   @db.ObjectId
+  pinCode             String   @unique
+  mode                LobbyMode @default(classic)
+  status              LobbyStatus @default(waiting)
+  answerOrderRandom   Boolean  @default(true)
+  questionOrderRandom Boolean  @default(false)
+  streaksEnabled      Boolean  @default(true)
+  nicknameGenerator   Boolean  @default(true)
+  startedAt           DateTime?
+  endedAt             DateTime?
+  settingsJson        String?
+  createdAt           DateTime @default(now())
+
+  // Relations
+  kahoot              Kahoot   @relation(fields: [kahootId], references: [id], onDelete: Cascade)
+  host                User     @relation("UserHostedLobbies", fields: [hostId], references: [id], onDelete: Cascade)
+  teams               LobbyTeam[]
+  players             LobbyPlayer[]
+  responses           LobbyPlayerResponse[]
+
+  @@map("lobby_sessions")
+}
+
+model LobbyTeam {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId  String   @db.ObjectId
+  name       String
+  createdAt  DateTime @default(now())
+
+  // Relations
+  session    LobbySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  players    LobbyPlayer[]
+
+  @@index([sessionId])
+  @@map("lobby_teams")
+}
+
+model LobbyPlayer {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId      String   @db.ObjectId
+  teamId         String?  @db.ObjectId
+  userId         String?  @db.ObjectId
+  nickname       String
+  isKicked       Boolean @default(false)
+  joinedAt       DateTime @default(now())
+  leftAt         DateTime?
+  finalScore     Float?
+  streakCurrent  Int @default(0)
+  streakMax      Int @default(0)
+
+  // Relations
+  session        LobbySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  team           LobbyTeam?   @relation(fields: [teamId], references: [id])
+  user           User?        @relation("UserLobbyPlayers", fields: [userId], references: [id])
+  responses      LobbyPlayerResponse[]
+
+  @@index([sessionId])
+  @@map("lobby_players")
+}
+
+model LobbyPlayerResponse {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId     String   @db.ObjectId
+  playerId      String   @db.ObjectId
+  questionId    String   @db.ObjectId
+  answerId      String?  @db.ObjectId
+  isCorrect     Boolean
+  timeTakenMs   Int
+  basePoints    Float
+  speedBonus    Float
+  pointsAwarded Float
+  createdAt     DateTime @default(now())
+
+  // Relations
+  session       LobbySession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  player        LobbyPlayer    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  question      KahootQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answer        KahootAnswer?  @relation(fields: [answerId], references: [id])
+
+  @@map("lobby_player_responses")
+}
+
+////////////////////////////////////////////////////////////
+// CHALLENGE
+////////////////////////////////////////////////////////////
+
+enum ChallengeStatus { 
+  draft
+  open
+  closed
+}
+
+model Challenge {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  kahootId            String   @db.ObjectId
+  creatorId           String   @db.ObjectId
+  pinCode             String?  @unique
+  title               String
+  introText           String?
+  startAt             DateTime?
+  dueAt               DateTime?
+  status              ChallengeStatus @default(open)
+  answerOrderRandom   Boolean @default(true)
+  questionOrderRandom Boolean @default(false)
+  streaksEnabled      Boolean @default(true)
+  createdAt           DateTime @default(now())
+
+  // Relations
+  kahoot              Kahoot @relation(fields: [kahootId], references: [id], onDelete: Cascade)
+  creator             User   @relation("UserChallenges", fields: [creatorId], references: [id], onDelete: Cascade)
+  attempts            ChallengeAttempt[]
+
+  @@map("challenges")
+}
+
+model ChallengeAttempt {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  challengeId String   @db.ObjectId
+  userId      String?  @db.ObjectId
+  nickname    String
+  startedAt   DateTime @default(now())
+  submittedAt DateTime?
+  scoreTotal  Float
+  streakMax   Int
+
+  // Relations
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user        User?     @relation("UserChallengeAttempts", fields: [userId], references: [id])
+  responses   ChallengeResponse[]
+
+  @@index([challengeId, userId])
+  @@map("challenge_attempts")
+}
+
+model ChallengeResponse {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  attemptId     String   @db.ObjectId
+  questionId    String   @db.ObjectId
+  answerId      String?  @db.ObjectId
+  isCorrect     Boolean
+  timeTakenMs   Int
+  basePoints    Float
+  speedBonus    Float
+  pointsAwarded Float
+  createdAt     DateTime @default(now())
+
+  // Relations
+  attempt       ChallengeAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question      KahootQuestion   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answer        KahootAnswer?    @relation(fields: [answerId], references: [id])
+
+  @@map("challenge_responses")
+}
+
+////////////////////////////////////////////////////////////
+// REPORTS
+////////////////////////////////////////////////////////////
+
+enum ReportSource { 
+  lobby_session 
+  challenge
+}
+
+model GameReport {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  source          ReportSource
+  sourceId        String
+  kahootId        String   @db.ObjectId
+  hostId          String   @db.ObjectId
+  totalPlayers    Int
+  totalQuestions  Int
+  avgAccuracy     Float
+  createdAt       DateTime @default(now())
+
+  // Relations
+  kahoot          Kahoot @relation(fields: [kahootId], references: [id], onDelete: Cascade)
+  host            User   @relation("UserGameReports", fields: [hostId], references: [id], onDelete: Cascade)
+  reportPlayers   ReportPlayer[]
+
+  @@map("game_reports")
+}
+
+model ReportPlayer {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  reportId     String   @db.ObjectId
+  userId       String?  @db.ObjectId
+  nickname     String
+  rank         Int
+  scoreTotal   Float
+  streakMax    Int
+  correctCount Int
+  wrongCount   Int
+
+  // Relations
+  report       GameReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user         User?      @relation("UserReportPlayers", fields: [userId], references: [id])
+
+  @@index([reportId])
+  @@map("report_players")
+}
+
+////////////////////////////////////////////////////////////
+// SOCIAL & SYSTEM
+////////////////////////////////////////////////////////////
+
+model Favorite {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @db.ObjectId
+  kahootId   String   @db.ObjectId
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user       User   @relation("UserFavorites", fields: [userId], references: [id], onDelete: Cascade)
+  kahoot     Kahoot @relation(fields: [kahootId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kahootId])
+  @@map("favorites")
+}
+
+model Comment {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  kahootId   String   @db.ObjectId
+  userId     String   @db.ObjectId
+  content    String
+  createdAt  DateTime @default(now())
+  parentId   String?
+
+  // Relations
+  kahoot     Kahoot @relation(fields: [kahootId], references: [id], onDelete: Cascade)
+  user       User   @relation("UserComments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+model AuditLog {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  actorId     String   @db.ObjectId
+  action      String
+  targetType  String
+  targetId    String
+  diffJson    String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  actor       User @relation("UserAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@map("audit_logs")
+}
+
+model File {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId    String   @db.ObjectId
+  url        String
+  mime       String
+  size       Int
+  metaJson   String?
+  createdAt  DateTime @default(now())
+
+  // Relations
+  owner      User @relation("UserFiles", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@map("files")
 }
