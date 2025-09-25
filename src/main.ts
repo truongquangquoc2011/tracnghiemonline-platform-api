@@ -1,17 +1,45 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { envConfig } from './shared/config';
-import { PrismaClient } from '@prisma/client';
+import { NestFactory } from '@nestjs/core'
+import { AppModule } from './app.module'
+import { Logger } from '@nestjs/common'
+import { setupSwagger } from './shared/swagger/swagger'
+import { NestExpressApplication } from '@nestjs/platform-express'
+import helmet from 'helmet'
+import { envConfig } from './shared/config'
+import { ParseObjectIdPipe } from './shared/pipes/parse-objectid.pipe'
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('/api/v1');
-  app.enableCors();
-  await app.listen(envConfig.port ?? 3000);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule)
+  app.set('trust proxy', 'loopback')
+  app.enableCors()
+  app.use(helmet())
+  app.setGlobalPrefix('/api/v1')
 
-  const prisma = new PrismaClient();
-  await prisma.$connect();
-  console.log(' Connected to MongoDB successfully!');
+  app.enableShutdownHooks()
+  app.useGlobalPipes(new ParseObjectIdPipe());
 
+  process.on('SIGTERM', () => {
+    console.log('Received SIGTERM, shutting down successfully')
+    app.close().then(() => {
+      console.log('NestJS app closed')
+    })
+  })
+
+  process.on('SIGINT', () => {
+    console.log('Received SIGINT, shutting down successfully')
+    app.close().then(() => {
+      console.log('NestJS app closed')
+    })
+  })
+
+  setupSwagger(app)
+  await app.listen(envConfig.port ?? envConfig.portDefault)
+  Logger.log(`🚀 Server is running on: ${await app.getUrl()}`)
 }
-bootstrap();
+
+void (async (): Promise<void> => {
+  try {
+    await bootstrap()
+  } catch (error) {
+    Logger.error(error, 'Error starting server')
+  }
+})()

@@ -35,7 +35,7 @@ const EnvSchema = z.object({
     .refine((val) => !isNaN(val), {
       message: 'PORT_DEFAULT must be a number',
     })
-    .default(3000),
+    .default('3000'),
   DATABASE_URL: z.string().url({ message: 'DATABASE_URL must be a valid URL' }),
   ACCESS_TOKEN_SECRET: z.string().min(10),
   REFRESH_TOKEN_SECRET: z.string().min(10),

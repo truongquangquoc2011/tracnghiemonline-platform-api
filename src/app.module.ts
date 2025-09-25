@@ -1,17 +1,47 @@
 import { Module } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { SharedModule } from './shared/shared.module';
-import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
-import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe';
+import { AuthModule } from './routes/auth/auth.module';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerBehindProxyGuard } from './shared/guards/throttler-behind-proxy.guard';
 import { ZodSerializerInterceptor } from 'nestjs-zod';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
+import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe';
 
 @Module({
-  imports: [SharedModule],
+  imports: [
+    SharedModule,
+    AuthModule,
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          name: 'short',
+          ttl: 60000,
+          limit: 5,
+        },
+        {
+          name: 'long',
+          ttl: 120000,
+          limit: 7,
+        },
+      ],
+    }),
+  ],
   controllers: [],
   providers: [
-    { provide: APP_PIPE, useClass: CustomZodValidationPipe },
+    {
+      provide: APP_PIPE,
+      useClass: CustomZodValidationPipe,
+    },
     { provide: APP_INTERCEPTOR, useClass: ZodSerializerInterceptor },
-    { provide: APP_FILTER, useClass: HttpExceptionFilter },
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerBehindProxyGuard,
+    },
   ],
 })
 export class AppModule {}
