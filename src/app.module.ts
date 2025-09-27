@@ -6,6 +6,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { ThrottlerBehindProxyGuard } from './shared/guards/throttler-behind-proxy.guard';
 import { ZodSerializerInterceptor } from 'nestjs-zod';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
+import { LobbyModule } from './routes/lobby/lobby.module';
 import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe';
 
 @Module({
@@ -26,6 +27,7 @@ import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe';
         },
       ],
     }),
+    LobbyModule,
   ],
   controllers: [],
   providers: [

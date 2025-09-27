@@ -6,7 +6,8 @@ export const MESSAGES = {
     PASSWORD: 'Password credentials to access the database main ',
   },
   AUTH: {
-    GOOGLE_EMAIL_NOT_FOUND: 'Unable to retrieve email from Google. Please try again.',
+    GOOGLE_EMAIL_NOT_FOUND:
+      'Unable to retrieve email from Google. Please try again.',
     GOOGLE_LOGIN_FAILED: 'Google login failed. Please try again.',
     GOOGLE_CALLBACK_FAILED: 'Google OAuth callback failed',
     FACEBOOK_LOGIN_FAILED: 'Facebook login failed. Please try again.',
@@ -97,6 +98,17 @@ export const MESSAGES = {
       INVALID_REFERENCE: 'Invalid user or template reference',
       TEMPLATE_NOT_FOUND: 'Referenced template not found',
     },
+    LOBBY: {
+      CREATE_FAILED: 'Failed to create lobby. Please try again.',
+      JOIN_FAILED:
+        'Failed to join lobby. Please check the PIN code and try again.',
+      START_FAILED: 'Failed to start lobby. Only host can start the game.',
+      END_FAILED: 'Failed to end lobby. Only host can end the game.',
+      NOT_FOUND: 'Lobby not found.',
+      PLAYER_NOT_FOUND: 'Player not found in this lobby.',
+      SUBMIT_FAILED: 'Failed to submit answer. Please try again.',
+      KICK_FAILED: 'Failed to kick player. Only host can perform this action.',
+    },
   },
   SUCCESS_MESSAGES: {
     LOGIN: 'Login successfully.',
@@ -161,8 +173,30 @@ export const MESSAGES = {
       UPLOAD_IMAGE: 'Image uploaded successfully.',
       UPLOAD_MUL_IMAGE: 'Multiple images were uploaded successfully.',
     },
+    LOBBY: {
+      CREATE: 'Lobby created successfully.',
+      JOIN: 'Joined lobby successfully.',
+      START: 'Lobby started successfully.',
+      END: 'Lobby ended successfully.',
+      SUBMIT_ANSWER: 'Answer submitted successfully.',
+      LEADERBOARD: 'Leaderboard retrieved successfully.',
+      KICK: 'Player kicked successfully.',
+    },
   },
   VALIDATION_MESSAGES: {
+    LOBBY: {
+      PIN_REQUIRED: 'Lobby PIN code is required.',
+      PIN_INVALID: 'Invalid lobby PIN code format.',
+      NICKNAME_REQUIRED: 'Nickname is required to join lobby.',
+      NICKNAME_TAKEN: 'This nickname is already taken in the lobby.',
+      SESSION_INVALID: 'Invalid lobby session.',
+      QUESTION_INVALID: 'Invalid question for this lobby.',
+      ANSWER_INVALID: 'Invalid answer for this question.',
+      NOT_JOINABLE: 'Lobby is not joinable at this time.',
+      NOT_RUNNING: 'Lobby is not currently running.',
+      NOT_HOST: 'Only the host is allowed to perform this action.',
+      NOT_FOUND: 'not found'
+    },
     TITLE: 'Validation Errors.',
     UPLOAD: {
       IMAGE: {
@@ -179,7 +213,8 @@ export const MESSAGES = {
         ID_MUST_BE_A_STRING: 'User ID must be a string.',
         ID_CAN_NOT_BE_EMPTY: 'User ID cannot be empty.',
         WITH_ID_IS_NOT_EXIST: 'User with the specified ID does not exist.',
-        NOT_ROLE_NOT_SATISFIED: 'You do not have the appropriate role to access these resources.',
+        NOT_ROLE_NOT_SATISFIED:
+          'You do not have the appropriate role to access these resources.',
         INVALID_INCLUDES: 'Invalid pagination inclusion.',
         EMAIL_OR_PASSWORD_IS_INCORRECT: 'The email or password is incorrect.',
         INVALID_BEARER_TOKEN: 'The bearer token is invalid.',
@@ -187,27 +222,33 @@ export const MESSAGES = {
         EMAIL: {
           IS_REQUIRED: 'Email is required.',
           MUST_BE_A_STRING: 'Email must be a string.',
-          ACCESSIBILITY: 'The email address does not exist. Please use a valid one or register.',
+          ACCESSIBILITY:
+            'The email address does not exist. Please use a valid one or register.',
           NOT_REGISTER: 'Email is not registered.',
           ALREADY_EXISTS: 'User with this email already exists',
           VALID_EMAIL: 'Email address is invalid.',
           VALID_DOMAIN: 'Email must end with @gmail.com or @gmail.edu.com.',
-          CONTAIN_SPECIAL_CHARACTER: 'Email must contain at least one special character.',
+          CONTAIN_SPECIAL_CHARACTER:
+            'Email must contain at least one special character.',
         },
         NAME: {
           INVALID: 'Invalid Name format.',
           IS_REQUIRED: 'Name is required.',
           MUST_BE_A_STRING: 'Name must be a string.',
-          LENGTH_MUST_BE_FROM_3_TO_15: 'Name must be between 3 and 15 characters long.',
-          INCLUDES_MUL_WHITESPACE: 'Name cannot contain multiple consecutive whitespaces.',
+          LENGTH_MUST_BE_FROM_3_TO_15:
+            'Name must be between 3 and 15 characters long.',
+          INCLUDES_MUL_WHITESPACE:
+            'Name cannot contain multiple consecutive whitespaces.',
         },
         PHONE: {
           INVALID: 'Invalid phone number.',
           MUST_BE_A_STRING: 'Phone number must be a string.',
-          LENGTH_MUST_BE_10_CHARACTER: 'Phone number must be 10 or 11 digits long.',
+          LENGTH_MUST_BE_10_CHARACTER:
+            'Phone number must be 10 or 11 digits long.',
           LENGTH_MUST_BE_STRING_NUMBER: 'Phone number must be numeric.',
           IS_REQUIRED: 'Phone number is required.',
-          IS_INVALID: 'Invalid phone number. Please provide a valid Vietnamese phone number.',
+          IS_INVALID:
+            'Invalid phone number. Please provide a valid Vietnamese phone number.',
         },
         PASSWORD: {
           RESET_FAILED: 'Failed to reset password.',
@@ -215,19 +256,24 @@ export const MESSAGES = {
           IS_REQUIRED: 'Password is required.',
           MUST_BE_STRONG:
             'Password must meet the strength requirements: 8-16 characters including at least 1 lowercase, 1 uppercase, 1 number, and 1 symbol.',
-          LENGTH_MUST_BE_FROM_6_TO_20: 'Password length must be between 6 and 20 characters.',
+          LENGTH_MUST_BE_FROM_6_TO_20:
+            'Password length must be between 6 and 20 characters.',
           CONTAINS_EMOJI: 'Password cannot contain emojis or whitespace.',
           MUST_BE_A_STRING: 'Password must be a string.',
-          NOT_SAME_OLD_PASSWORD: 'New password must not be the same as the old password.',
+          NOT_SAME_OLD_PASSWORD:
+            'New password must not be the same as the old password.',
         },
         CONFIRM_PASSWORD: {
           IS_REQUIRED: 'Confirm_password is required.',
-          MUST_BE_THE_SAME_AS_PASSWORD: 'Confirm_password must match the password.',
+          MUST_BE_THE_SAME_AS_PASSWORD:
+            'Confirm_password must match the password.',
           MUST_BE_A_STRING: 'Confirm_password must be a string.',
-          LENGTH_MUST_BE_FROM_6_TO_20: 'Confirm_password length must be between 6 and 20 characters.',
+          LENGTH_MUST_BE_FROM_6_TO_20:
+            'Confirm_password length must be between 6 and 20 characters.',
           MUST_BE_STRONG:
             'Confirm_password must meet the strength requirements 8-16 characters including at least 1 lowercase, 1 uppercase, 1 number, and 1 symbol.',
-          CONTAINS_EMOJI: 'Confirm password cannot contain emojis or whitespace.',
+          CONTAINS_EMOJI:
+            'Confirm password cannot contain emojis or whitespace.',
         },
         OLD_PASSWORD: {
           IS_REQUIRED: 'Old password is required.',
@@ -235,7 +281,8 @@ export const MESSAGES = {
         },
         FILE: {
           INVALID: 'Invalid file type or file too large',
-          INVALID_EXTENSION: 'Invalid file type. Only .jpg, .jpeg, .bmp, .gif, .png are allowed.',
+          INVALID_EXTENSION:
+            'Invalid file type. Only .jpg, .jpeg, .bmp, .gif, .png are allowed.',
           INVALID_SIZE: 'Image dimensions should not exceed 1024x1024 pixels',
         },
       },
@@ -269,14 +316,17 @@ export const MESSAGES = {
         EMAIL_IS_REQUIRED: 'Email is required.',
         EMAIL_MUST_BE_A_STRING: 'Email must be a string.',
         EMAIL_INVALID: 'Email address is invalid',
-        EMAIL_ACCESSIBILITY: 'The email address does not exist. Please use a valid one or register.',
+        EMAIL_ACCESSIBILITY:
+          'The email address does not exist. Please use a valid one or register.',
         PASSWORD_IS_REQUIRED: 'Password is required.',
         PASSWORD_MUST_BE_A_STRING: 'Password must be a string.',
         PASSWORD_MUST_BE_STRONG:
           'Password must be 8-16 characters, including at least 1 lowercase, 1 uppercase, 1 number, and 1 symbol.',
-        PASSWORD_LENGTH_MUST_BE_FROM_8_TO_16: 'Password length must be between 8 and 16 characters.',
+        PASSWORD_LENGTH_MUST_BE_FROM_8_TO_16:
+          'Password length must be between 8 and 16 characters.',
         PASSWORD_IS_INCORRECT: 'The email or password is incorrect.',
-        PASSWORD_CONTAINS_EMOJI: 'Password cannot contains emoji symbol and white space',
+        PASSWORD_CONTAINS_EMOJI:
+          'Password cannot contains emoji symbol and white space',
         ACCOUNT_IS_UNVERIFIED: 'The account is unverified.',
         ACCOUNT_IS_BANNED: 'The account is banned.',
         ACCOUNT_NOT_FOUND: 'Account not found.',
@@ -287,30 +337,38 @@ export const MESSAGES = {
         INVALID_FULLNAME: 'Must be a valid full_name',
         FULL_NAME_IS_REQUIRED: 'Full name is required.',
         FULL_NAME_MUST_BE_A_STRING: 'Full name must be a string.',
-        FULL_NAME_LENGTH_MUST_BE_FROM_3_TO_30: 'Full name length must be between 3 and 30 characters.',
-        FULL_NAME_INCLUDES_MUL_WHITESPACE: 'Full name cannot contain multiple consecutive whitespaces.',
+        FULL_NAME_LENGTH_MUST_BE_FROM_3_TO_30:
+          'Full name length must be between 3 and 30 characters.',
+        FULL_NAME_INCLUDES_MUL_WHITESPACE:
+          'Full name cannot contain multiple consecutive whitespaces.',
         EMAIL_IS_REQUIRED: 'Email is required.',
         EMAIL_MUST_BE_A_STRING: 'Email must be a valid address.',
-        EMAIL_ACCESSIBILITY: 'The email address is already in use. Please use a different email.',
+        EMAIL_ACCESSIBILITY:
+          'The email address is already in use. Please use a different email.',
         PASSWORD_IS_REQUIRED: 'Password is required.',
         PASSWORD_MUST_BE_A_STRING: 'Password must be a string.',
         PASSWORD_MUST_BE_STRONG:
           'Password must meet the strength requirements: 8-16 characters including at least 1 lowercase, 1 uppercase, 1 number, and 1 symbol.',
-        PASSWORD_LENGTH_MUST_BE_FROM_8_TO_16: 'Password length must be between 8 and 16 characters.',
+        PASSWORD_LENGTH_MUST_BE_FROM_8_TO_16:
+          'Password length must be between 8 and 16 characters.',
         PASSWORD_CAN_NOT_CONTAIN_SPACE: 'Password cannot contain spaces.',
         CONFIRM_PASSWORD_IS_REQUIRED: 'Confirm password is required.',
         CONFIRM_PASSWORD_MUST_BE_A_STRING: 'Confirm password must be a string.',
-        CONFIRM_PASSWORD_MUST_BE_THE_SAME_AS_PASSWORD: 'Confirm password must match the password.',
+        CONFIRM_PASSWORD_MUST_BE_THE_SAME_AS_PASSWORD:
+          'Confirm password must match the password.',
         CONFIRM_PASSWORD_MUST_BE_STRONG:
           'Confirm password must meet the strength requirements: 8-16 characters including at least 1 lowercase, 1 uppercase, 1 number, and 1 symbol.',
-        CONFIRM_PASSWORD_LENGTH_MUST_BE_FROM_8_TO_16: 'Confirm password length must be between 8 and 16 characters.',
+        CONFIRM_PASSWORD_LENGTH_MUST_BE_FROM_8_TO_16:
+          'Confirm password length must be between 8 and 16 characters.',
         INVALID_PHONE: 'Phone number must be valid.',
         PHONE_MUST_BE_A_STRING: 'Phone must be a string.',
-        PHONE_LENGTH_MUST_BE_10_CHARACTER: 'Phone length must be 10 or 11 characters.',
+        PHONE_LENGTH_MUST_BE_10_CHARACTER:
+          'Phone length must be 10 or 11 characters.',
         PHONE_LENGTH_MUST_BE_STRING_NUMBER: 'Phone number must be numeric.',
         PHONE_IS_REQUIRED: 'Phone is required.',
         PHONE_MUST_BE_STRING: 'Phone must be a string.',
-        PHONE_IS_INVALID: 'The phone number is invalid. Please enter a valid Vietnamese phone number.',
+        PHONE_IS_INVALID:
+          'The phone number is invalid. Please enter a valid Vietnamese phone number.',
       },
       VERIFY_OTP: {
         INVALID_OTP: 'Invalid OTP.',
@@ -318,7 +376,8 @@ export const MESSAGES = {
         IS_NOT_EXIST: 'OTP not found.',
         MUST_BE_A_STRING: 'OTP must be a string.',
         OPT_LENGTH_MUST_BE_6: 'OTP length must be 6 characters.',
-        NOT_FOUND_OR_ALREADY_VERIFIED: 'User not found or OTP already verified.',
+        NOT_FOUND_OR_ALREADY_VERIFIED:
+          'User not found or OTP already verified.',
         IS_NUMBERIC: 'OTP must be numeric.',
         IS_EXPIRED: 'OTP has expired.',
       },
@@ -328,34 +387,45 @@ export const MESSAGES = {
         LENGTH_MUST_BE_6: 'Forgot_password token length must be 6 characters.',
         IS_NOT_EXIST: 'Forgot_password token not found.',
         IS_EXPIRED: 'Forgot_password token has expired.',
-        NOT_FOUND_OR_ALREADY_VERIFIED: 'User not found or forgot_password token already verified.',
+        NOT_FOUND_OR_ALREADY_VERIFIED:
+          'User not found or forgot_password token already verified.',
         INVALID_TOKEN: 'Invalid forgot_password token.',
         IS_NUMBERIC: 'Forgot_password token must be numeric.',
       },
       PROFILE: {
         USER_NOT_FOUND: 'User not found',
-        FIELD_UPDATE_IS_REQUIRED: 'At least one field must be specified for updating.',
+        FIELD_UPDATE_IS_REQUIRED:
+          'At least one field must be specified for updating.',
         INVALID_FULLNAME: 'Full_name must be valid.',
-        FULLNAME_INCLUDES_MUL_WHITESPACE: 'Full name cannot contain multiple consecutive whitespaces.',
+        FULLNAME_INCLUDES_MUL_WHITESPACE:
+          'Full name cannot contain multiple consecutive whitespaces.',
         FULL_NAME_MUST_BE_A_STRING: 'Full name must be a string.',
-        FULL_NAME_MAX_LENGTH_IS_50: 'Full name length must be between 4 and 50 characters.',
+        FULL_NAME_MAX_LENGTH_IS_50:
+          'Full name length must be between 4 and 50 characters.',
         INVALID_PHONE: 'Phone number must be valid.',
         PHONE_MUST_BE_A_STRING: 'Phone must be a string.',
-        PHONE_LENGTH_MUST_BE_10_CHARACTER: 'Phone length must be 10 or 11 characters.',
+        PHONE_LENGTH_MUST_BE_10_CHARACTER:
+          'Phone length must be 10 or 11 characters.',
         PHONE_LENGTH_MUST_BE_STRING_NUMBER: 'Phone number must be numeric.',
         PHONE_IS_REQUIRED: 'Phone is required.',
         PHONE_MUST_BE_STRING: 'Phone must be a string.',
-        PHONE_IS_INVALID: 'The phone number is invalid. Please enter a valid Vietnamese phone number.',
+        PHONE_IS_INVALID:
+          'The phone number is invalid. Please enter a valid Vietnamese phone number.',
         GENDER_MUST_BE_STRING: 'Gender must be a string.',
-        GENDER_IS_INVALID: 'Gender is invalid. Please specify as Male, Female, Other, etc.',
+        GENDER_IS_INVALID:
+          'Gender is invalid. Please specify as Male, Female, Other, etc.',
         AVATAR_MUST_BE_STRING: 'Avatar image must be a string.',
-        VALID_URL_AVATAR: 'Avatar URL must be valid and have a valid image extension.',
-        VALID_URL_COVER_PHOTO: 'Cover photo URL must be valid and have a valid image extension.',
+        VALID_URL_AVATAR:
+          'Avatar URL must be valid and have a valid image extension.',
+        VALID_URL_COVER_PHOTO:
+          'Cover photo URL must be valid and have a valid image extension.',
         COVER_PHOTO_MUST_BE_STRING: 'Cover photo must be a string.',
         INVALID_ADDRESS: 'Address must be valid.',
         ADDRESS_MUST_BE_STRING: 'Address must be a string.',
-        ADDRESS_LENGTH_IS_INVALID: 'Address length must be between 10 and 200 characters.',
-        ADDRESS_INCLUDES_MUL_WHITESPACE: 'Address cannot contain multiple consecutive whitespaces.',
+        ADDRESS_LENGTH_IS_INVALID:
+          'Address length must be between 10 and 200 characters.',
+        ADDRESS_INCLUDES_MUL_WHITESPACE:
+          'Address cannot contain multiple consecutive whitespaces.',
       },
     },
   },
@@ -369,14 +439,16 @@ export const MESSAGES = {
     IMAGE_FOLDER: 'Folder that contain image images on cloudinary',
   },
   ERROR_RESPONSE: {
-    TOO_MANY_RES: 'Too many accounts created from this IP, please try again after a millisecond',
+    TOO_MANY_RES:
+      'Too many accounts created from this IP, please try again after a millisecond',
     INTERNAL_SERVER_RES: 'Internal server error',
   },
   API_MESSAGES: {
     AUTH: {
       LOGIN: {
         MESSAGE_TITLE: 'Login user into the system',
-        MESSAGE_SUMARY: 'Authenticates a user and returns a token upon successful authentication',
+        MESSAGE_SUMARY:
+          'Authenticates a user and returns a token upon successful authentication',
       },
       REGISTER: {
         MESSAGE_TITLE: 'Register a new user',
@@ -484,4 +556,36 @@ export const MESSAGES = {
       },
     },
   },
-}
+  LOBBY: {
+    CREATE: {
+      MESSAGE_TITLE: 'Create a new lobby',
+      MESSAGE_SUMARY:
+        'Creates a new lobby session from an existing kahoot quiz.',
+    },
+    JOIN: {
+      MESSAGE_TITLE: 'Join a lobby',
+      MESSAGE_SUMARY:
+        'Allows a player to join a lobby using a PIN code and nickname.',
+    },
+    START: {
+      MESSAGE_TITLE: 'Start a lobby game',
+      MESSAGE_SUMARY: 'Host starts the game session of a lobby.',
+    },
+    END: {
+      MESSAGE_TITLE: 'End a lobby game',
+      MESSAGE_SUMARY: 'Host ends the lobby session.',
+    },
+    SUBMIT: {
+      MESSAGE_TITLE: 'Submit answer to a lobby question',
+      MESSAGE_SUMARY: 'Player submits an answer during a running lobby game.',
+    },
+    LEADERBOARD: {
+      MESSAGE_TITLE: 'Get lobby leaderboard',
+      MESSAGE_SUMARY: 'Retrieve the current leaderboard for a lobby session.',
+    },
+    KICK: {
+      MESSAGE_TITLE: 'Kick player from lobby',
+      MESSAGE_SUMARY: 'Host kicks a player out of the lobby.',
+    },
+  },
+};
