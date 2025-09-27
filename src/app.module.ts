@@ -6,7 +6,11 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { ThrottlerBehindProxyGuard } from './shared/guards/throttler-behind-proxy.guard';
 import { ZodSerializerInterceptor } from 'nestjs-zod';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
+import { KahootBankModule } from './routes/kahoot-bank/kahoot-bank.module';
 import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe';
+import { QuestionModule } from './routes/question/question.module';
+import { AnswerModule } from './routes/answer/answer.module';
+import { TagModule } from './routes/tag/tag.module';
 
 @Module({
   imports: [
@@ -26,6 +30,10 @@ import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe';
         },
       ],
     }),
+    KahootBankModule,
+    QuestionModule,
+    AnswerModule,
+    TagModule,
   ],
   controllers: [],
   providers: [
