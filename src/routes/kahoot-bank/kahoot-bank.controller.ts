@@ -12,7 +12,7 @@ import {
 } from './dto/kahoot-bank.dto';
 import { ParseObjectIdPipe } from 'src/shared/pipes/parse-objectid.pipe'
 import { UseInterceptors, UploadedFile } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor } from '@nestjs/platform-express'; 
 
 @Controller('kahoots')
 @ApiTags('Kahoot Bank')
@@ -20,29 +20,27 @@ import { FileInterceptor } from '@nestjs/platform-express';
 export class KahootBankController {
   constructor(private readonly service: KahootBankService) {}
 
-  // ===== Export Kahoot =====
-@Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
-@Get(':id/export')
-async exportKahoot(
-  @ActiveUser('userId') userId: string,
-  @Param('id', ParseObjectIdPipe) id: string,
-) {
-  return this.service.exportKahoot(userId, id);
-}
+  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Get(':id/export')
+  async exportKahoot(
+    @ActiveUser('userId') userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+  ) {
+    return this.service.exportKahoot(userId, id);
+  }
 
-// ===== Import Kahoot =====
-// Nhận file JSON (khuyến nghị). Nếu muốn mở rộng CSV có thể thêm sau.
-@Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
-@Post(':id/import')
-@UseInterceptors(FileInterceptor('file'))
-async importKahoot(
-  @ActiveUser('userId') userId: string,
-  @Param('id', ParseObjectIdPipe) id: string,
-  @UploadedFile() file: Express.Multer.File,
-) {
-  // Mặc định: mode = 'replace' (ghi đè toàn bộ câu hỏi/đáp án + tags)
-  return this.service.importKahoot(userId, id, file);
-}
+  // Nhận file JSON (khuyến nghị). Nếu muốn mở rộng CSV có thể thêm sau.
+  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Post(':id/import')
+  @UseInterceptors(FileInterceptor('file'))
+  async importKahoot(
+    @ActiveUser('userId') userId: string,
+    @Param('id', ParseObjectIdPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    // Mặc định: mode = 'replace' (ghi đè toàn bộ câu hỏi/đáp án + tags)
+    return this.service.importKahoot(userId, id, file);
+  }
 
   // Lấy danh sách kahoots
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })

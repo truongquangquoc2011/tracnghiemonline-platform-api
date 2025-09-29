@@ -13,63 +13,77 @@ export class TagController {
   ) {}
 
   // Lấy danh sách tags (có phân trang, lọc, tìm kiếm)
+  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
   @Get('tags/all')
-  async listAll(@Query() query: ListTagsQueryDTO) {
+  async listAll(
+    @Query() query: ListTagsQueryDTO
+  ) {
     return this.service.listAllTags(query);
   }
 
   // Lấy tags của kahoot
-  @Get(':kahootId/tags')
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Get(':kahootId/tags')
   listKahootTags(
-    @ActiveUser('userId') actorId: string,
+    @ActiveUser('userId') userId: string,
     @Param('kahootId') kahootId: string,
   ) {
-    return this.service.listKahootTags(actorId, kahootId);
+    return this.service.listKahootTags(userId, kahootId);
   }
 
   // Thêm tag cho kahoot
-  @Post(':kahootId/tags')
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Post(':kahootId/tags')
   addKahootTag(
-    @ActiveUser('userId') actorId: string,
+    @ActiveUser('userId') userId: string,
     @Param('kahootId') kahootId: string,
     @Body() body: AddKahootTagBodyDTO,
   ) {
-    return this.service.addKahootTag(actorId, kahootId, body as any);
+    return this.service.addKahootTag(userId, kahootId, body as any);
+  }
+
+    // Upsert tag mới
+  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Post(':kahootId/tags/upsert')
+  async upsertForKahoot(
+    @ActiveUser('userId') userId: string,
+    @Param('kahootId') kahootId: string,
+    @Body() body: UpsertTagsBodyDTO
+  ) {
+    const tags = await this.service.upsertTags(userId, kahootId, body.names);
+    return this.service.setKahootTags(userId, kahootId, (tags ?? []).map(t => t.id));
+  }
+
+    // Gắn tags cho 1 kahoot
+  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Put(':kahootId/tags/:tagId')
+  async upsertAndSet(
+    @ActiveUser('userId') userId: string,
+    @Param('kahootId') kahootId: string,
+    @Param('tagId') tagId: string,
+    @Body() body: { name: string; kind?: string | null },
+  ) {
+    return this.service.renameKahootTag(userId, kahootId, tagId, body.name, body.kind ?? null);
   }
 
   // Xoá tag khỏi kahoot
-  @Delete(':kahootId/tags/:tagId')
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Delete(':kahootId/tags/:tagId')
   removeKahootTag(
-    @ActiveUser('userId') actorId: string,
+    @ActiveUser('userId') userId: string,
     @Param('kahootId') kahootId: string,
     @Param('tagId') tagId: string,
   ) {
-    return this.service.removeKahootTag(actorId, kahootId, tagId);
+    return this.service.removeKahootTag(userId, kahootId, tagId);
   }
-
-  // Upsert tag mới
-  @Post('upsert/tags')
-  async upsert(@Body() body: UpsertTagsBodyDTO /* & UpsertTagsBody */) {
-    const tags = await this.service.upsertTags(body.names);
-    return { count: tags.length, items: tags };
-  }
-
-  // Gắn tags cho 1 kahoot
-  @Put(':kahootId/tags/:tagId')
-  async upsertAndSet(@Param('kahootId') kahootId: string, @Body() body: UpsertTagsBodyDTO) {
-    const tags = await this.service.upsertTags(body.names);
-    return this.service.setKahootTags(kahootId, tags.map(t => t.id));
-  }
-
   // Xoá tag master (nếu không còn kahoot nào dùng)
-  @Delete('delete/:tagId/tags')
+  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Delete(':kahootId/tags/:tagId/master')
   async deleteMasterTag(
-    @ActiveUser('userId') userId: string, 
-    @Param('tagId', ParseObjectIdPipe) id: string,
+    @ActiveUser('userId') userId: string,
+    @Param('kahootId') kahootId: string,
+    @Param('tagId', ParseObjectIdPipe) tagId: string,
   ) {
-    return this.service.deleteMasterTag(userId, id);
+    return this.service.deleteMasterTag(userId, kahootId, tagId);
   }
 }

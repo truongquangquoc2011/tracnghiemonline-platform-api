@@ -1,80 +1,88 @@
-import { Injectable } from '@nestjs/common'
-import { QuestionRepository } from './question.repo'
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { QuestionRepository } from './question.repo';
 import {
   QuestionNotFoundException,
-  CreateQuestionFailedException,
-  UpdateQuestionFailedException,
-  DeleteQuestionFailedException,
-  ReorderQuestionFailedException,
-} from './question.error'
+} from './question.error';
+import { PrismaService } from 'src/shared/services/prisma.service';
+import { UserNotFoundException } from 'src/shared/constants/file-error.constant';
 
 @Injectable()
 export class QuestionService {
-  constructor(private readonly repo: QuestionRepository) {}
+  constructor(
+    private readonly repo: QuestionRepository,
+    private readonly prisma: PrismaService,
+  ) {}
 
-  /**
-   * Lấy 1 câu hỏi theo id
-   */
-  async getQuestion(id: string) {
-    try {
-      return await this.repo.getById(id)
-    } catch {
-      throw QuestionNotFoundException
+  // Kiểm tra quyền xem kahoot (dùng cho listQuestions, getQuestion)
+  private async assertKahootViewable(kahootId: string, userId?: string) {
+    const k = await this.prisma.kahoot.findUnique({
+      where: { id: kahootId },
+      select: { id: true, ownerId: true, visibility: true },
+    });
+    if (!k) throw QuestionNotFoundException;
+
+    if (k.visibility === 'private' && k.ownerId !== userId) {
+      // Ẩn kahoot private với người ngoài
+      throw QuestionNotFoundException;
     }
+    return k;
   }
 
-  /**
-   * Lấy danh sách câu hỏi của 1 kahoot
-   */
-  async listQuestions(kahootId: string) {
-    try {
-      return await this.repo.listQuestions(kahootId)
-    } catch {
-      throw QuestionNotFoundException
+  async getQuestion(userId: string | undefined, kahootId: string, id: string) {
+    const q = await this.prisma.kahootQuestion.findUnique({
+      where: { id },
+      select: this.repo['CONFIG'].SELECT_QUESTION_FIELDS,
+    });
+    if (!q || q.deletedAt) throw QuestionNotFoundException;
+
+    if (q.kahootId !== kahootId) {
+      throw new NotFoundException({ message: 'Error.QuestionNotInKahoot', path: 'questionId' });
     }
+    // Check quyền xem theo visibility của chính kahoot đó
+    await this.assertKahootViewable(kahootId, userId);
+    return q;
   }
 
-  /**
-   * Tạo mới câu hỏi
-   */
-  async createQuestion(actorId: string, kahootId: string, data: any) {
-    try {
-      return await this.repo.createQuestion(kahootId, data)
-    } catch {
-      throw CreateQuestionFailedException
-    }
+  // Thêm điều kiện kiểm tra Kahootid có tồn tại không
+  async listQuestions(userId: string | undefined, kahootId: string) {
+    await this.assertKahootViewable(kahootId, userId);
+    return await this.repo.listQuestions(kahootId);
   }
 
-  /**
-   * Cập nhật câu hỏi
-   */
-  async updateQuestion(actorId: string, id: string, data: any) {
-    try {
-      return await this.repo.updateQuestion(id, data)
-    } catch {
-      throw UpdateQuestionFailedException
-    }
+  // Chuẩn nhất
+  async createQuestion(userId: string, kahootId: string, data: any) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw UserNotFoundException;
+    return await this.repo.createQuestion(kahootId, userId, data);
   }
 
-  /**
-   * Xoá câu hỏi (soft delete)
-   */
-  async deleteQuestion(actorId: string, id: string) {
-    try {
-      return await this.repo.deleteQuestion(id)
-    } catch {
-      throw DeleteQuestionFailedException
-    }
+  async updateQuestion(userId: string, kahootId: string, id: string, data: any) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw UserNotFoundException;
+      return await this.repo.updateQuestion(kahootId, userId, id, data);
   }
 
-  /**
-   * Reorder lại toàn bộ câu hỏi của kahoot
-   */
-  async reorderQuestions(actorId: string, kahootId: string, order: { id: string; orderIndex: number }[]) {
-    try {
-      return await this.repo.reorderQuestions(kahootId, order)
-    } catch {
-      throw ReorderQuestionFailedException
-    }
+  async deleteQuestion(userId: string, kahootId: string, id: string) {
+      const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw UserNotFoundException;
+      return await this.repo.deleteQuestion(kahootId, userId, id);
+  }
+
+  async reorderQuestions(userId: string, kahootId: string, order: { id: string; orderIndex: number }[],) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw UserNotFoundException;
+      return await this.repo.reorderQuestions(kahootId, userId, order);
   }
 }

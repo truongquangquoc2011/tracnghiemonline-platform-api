@@ -12,12 +12,32 @@ import {
 export class AnswerRepository {
   constructor(private readonly prismaService: PrismaService) {}
 
-  // ================== CONFIG ==================
+  // Kiểm tra câu trả lời có thuộc id câu hỏi không
+    async assertAnswerInQuestion(answerId: string, questionId: string) {
+    const a = await this.prismaService.kahootAnswer.findFirst({
+      where: { id: answerId,questionId },
+      select: { id: true},
+    });
+  if (!a) {
+    throw AnswerNotFoundException;
+  }
+  }
+
+  // Load câu hỏi kèm kahoot để kiểm tra quyền
+    async loadQuestionForGuard(questionId: string) {
+    return this.prismaService.kahootQuestion.findUnique({
+      where: { id: questionId },
+      select: {
+        id: true, kahootId: true, deletedAt: true,
+        kahoot: { select: { id: true, ownerId: true, publishedAt: true, visibility: true } },
+      },
+    });
+  }
+  
   private readonly CONFIG = {
     SELECT_ANSWER_FIELDS: {
       id: true,
       questionId: true,
-      // Các field dưới đây bám theo schema bạn đang dùng (thấy xuất hiện trong log compile trước đó)
       text: true,
       isCorrect: true,
       shape: true,

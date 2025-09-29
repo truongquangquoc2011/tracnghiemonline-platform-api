@@ -10,22 +10,26 @@ export class TagService {
         private readonly kahootService: KahootBankService
     ) {}
 
-  async listKahootTags(actorId: string, kahootId: string) {
+  async listKahootTags(
+    userId: string, 
+    kahootId: string
+  ) {
     try {
-    // bảo đảm actor có quyền xem kahoot (dùng getKahootDetail đã check private/owner)
-    await this.kahootService.getKahootDetail(actorId, kahootId);
+    await this.kahootService.getKahootDetail(userId, kahootId);
     const rows = await this.repo.listKahootTags(kahootId);
-    // trả mảng Tag "sạch"
     return rows.map(r => r.tag);
     } catch (error) {
       throw error
     }
   }
 
-  async addKahootTag(actorId: string, kahootId: string, body: { tagId?: string; name?: string; kind?: string | null; }) {
+  async addKahootTag(
+    userId: string, 
+    kahootId: string, 
+    body: { tagId?: string; name?: string; kind?: string | null; }
+  ) {
     try {
-    // chỉ owner/admin mới được chỉnh sửa tag
-    await this.kahootService.assertKahootOwnerOrAdmin(actorId, kahootId);
+    await this.kahootService.assertKahootOwnerOrAdmin(userId, kahootId);
 
     let tagId = body.tagId;
     if (!tagId && body.name) {
@@ -34,55 +38,61 @@ export class TagService {
     }
     if (!tagId) throw new Error('tagId or name is required');
 
-    await this.repo.addTagToKahoot(kahootId, tagId);
+    await this.repo.addTagToKahoot(kahootId, userId, tagId);
     return { success: true };
     } catch (error) {
       throw error
     }
   }
 
-    async removeKahootTag(actorId: string, kahootId: string, tagId: string) {
+    async removeKahootTag(userId: string, kahootId: string, tagId: string) {
       try {
-        await this.kahootService.assertKahootOwnerOrAdmin(actorId, kahootId);
-        await this.repo.removeTagFromKahoot(kahootId, tagId);
+        await this.kahootService.assertKahootOwnerOrAdmin(userId, kahootId);
+        await this.repo.removeTagFromKahoot(kahootId, userId, tagId);
         return { success: true };
         } catch (error) {
         throw error
       }
     }
     
-    async upsertTags(names: string[]) {
+    async upsertTags(
+      kahootId: string,
+      ownerId: string,
+      names: string[]) {
       try {
-        return await this.repo.upsertTags(names)
+        return await this.repo.upsertTags(ownerId,kahootId, names)
       } catch (error) {
         throw error
       }
     }
 
-    async setKahootTags(kahootId: string, tagIds: string[]) {
+    async setKahootTags(
+      userId: string,
+      kahootId: string,
+      tagIds: string[]) {
       try {
-        return await this.repo.setKahootTags(kahootId, tagIds)
+        await this.kahootService.assertKahootOwnerOrAdmin(userId, kahootId);
+        await this.repo.setKahootTags(kahootId, userId, tagIds);
+        return { success: true };
       } catch (error) {
         throw error
       }
     }
 
-    async deleteMasterTag(actorId: string, tagId: string) {
-      try {
-      // (tùy bạn) Có thể yêu cầu quyền admin: await this.kahootService.assertAdmin(actorId);
-
+  async deleteMasterTag(userId: string, kahootId: string, tagId: string) {
+    try {
       const tag = await this.repo.findById(tagId);
       if (!tag) throw TagNotFoundException;
 
       const refs = await this.repo.countKahootsUsingTag(tagId);
       if (refs > 0) throw TagInUseException(refs);
 
-      await this.repo.deleteTag(tagId);
+      await this.repo.deleteTagMaster(kahootId, userId, tagId);
       return { success: true };
-      } catch (error) {
-      throw error
+    } catch (error) {
+      throw error;
     }
-    }
+  }
 
     async listAllTags(query: any) {
       try {
@@ -91,7 +101,7 @@ export class TagService {
       const where: any = {};
       if (q) where.name = { contains: q, mode: 'insensitive' };
       if (kind) where.kind = kind;
-      if (onlyUsed) where.kahootTags = { some: {} }; // chỉ tag đang được gán ở ít nhất 1 kahoot
+      if (onlyUsed) where.kahootTags = { some: {} };
 
       const [items, total] = await Promise.all([
         this.repo.listAll(where, page ?? 1, limit ?? 20),
@@ -100,6 +110,29 @@ export class TagService {
       return { items, total, page: page ?? 1, limit: limit ?? 20 };
     } catch (error) {
       throw error
+    }
+  }
+
+  async renameKahootTag(
+    actorId: string,
+    kahootId: string,
+    oldTagId: string,
+    newName: string,
+    kind: string | null,
+    ) {
+    try {
+      // chỉ owner/admin mới được chỉnh sửa tag
+      await this.kahootService.assertKahootOwnerOrAdmin(actorId, kahootId);
+
+      // tạo (hoặc lấy) tag theo tên mới
+      const newTag = await this.repo.ensureTagByName(newName, kind);
+
+      // thay liên kết oldTagId -> newTag.id (idempotent)
+      await this.repo.swapKahootTag(kahootId, oldTagId, newTag.id);
+
+      return { success: true, tagId: newTag.id };
+    } catch (error) {
+      throw error;
     }
   }
 }

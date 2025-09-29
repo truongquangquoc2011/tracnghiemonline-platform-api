@@ -7,6 +7,7 @@ import {
   InvalidImportFileException,
   KahootNotFoundException,
 } from './kahoot-bank.error'  
+import { isUniqueConstraintPrismaError } from 'src/shared/helper';
 
 @Injectable()
 export class KahootBankService {
@@ -17,8 +18,8 @@ export class KahootBankService {
     private readonly answerRepo: AnswerRepository,
   ) {}
 
-
-  async listKahoots(actorId: string, query: any) {
+  // Danh sách kahoot với phân trang, lọc, tìm kiếm
+  async listKahoots(userId: string, query: any) {
     try {
     const { page, limit, sort, ownerId, visibility, tagId, q } = query
     const where: any = {}
@@ -42,20 +43,25 @@ export class KahootBankService {
     }
   }
 
-  async getKahootDetail(actorId: string, id: string) {
+  // Chi tiết kahoot, kiểm tra quyền xem
+  async getKahootDetail(userId: string, id: string) {
     try {
     const item = await this.repo.findKahootById(id)
     if (!item) throw new BadRequestException('Kahoot not found')
     // Quyền xem: nếu private thì chỉ owner xem được (tạm thời)
-    if (item.visibility === 'private' && item.ownerId !== actorId) {
+    if (item.visibility === 'private' && item.ownerId !== userId) {
       throw new ForbiddenException('Unauthorized to view this kahoot')
     }
     return item
     } catch (error) {
+      if (isUniqueConstraintPrismaError(error)) {
+              throw new BadRequestException('Kahoot not found');
+            }
       throw error
     }
   }
 
+  // Tạo kahoot mới
   async createKahoot(ownerId: string, data: any) {
     try {
       return await this.repo.createKahoot({ ownerId, ...data })
@@ -64,10 +70,14 @@ export class KahootBankService {
     }
   }
 
-  async updateKahoot(actorId: string, id: string, data: any) {
+  // Cập nhật kahoot
+  async updateKahoot(userId: string, id: string, data: any) {
     try {
-    const item = await this.getKahootDetail(actorId, id)
-    // Nếu đã publish (publishedAt != null), giới hạn field
+    const item = await this.getKahootDetail(userId, id)
+
+    if (item.ownerId !== userId) {
+      throw new ForbiddenException('Forbidden');
+  }
     const isPublished = !!item.publishedAt
     if (isPublished) {
       const allowed = (({ title, description, coverImage }) => ({ title, description, coverImage }))(data)
@@ -75,59 +85,72 @@ export class KahootBankService {
     }
     return this.repo.updateKahoot(id, data)
     } catch (error) {
+      if (isUniqueConstraintPrismaError(error)) {
+              throw new BadRequestException('Kahoot not found');
+            }
       throw error
     }
   }
 
-  async removeKahoot(actorId: string, id: string) {
+  // Xoá kahoot
+  async removeKahoot(userId: string, id: string) {
     try {
-    const item = await this.getKahootDetail(actorId, id)
-    if (item.ownerId !== actorId) throw new ForbiddenException('Forbidden')
+    const item = await this.getKahootDetail(userId, id)
+    if (item.ownerId !== userId) throw new ForbiddenException('Forbidden')
     return this.repo.deleteKahoot(id)
    } catch (error) {
+    if (isUniqueConstraintPrismaError(error)) {
+              throw new BadRequestException('Kahoot not found');
+            }
       throw error
     }
   }
 
-async publishKahoot(actorId: string, id: string) {
-  try {
-    const item = await this.getKahootDetail(actorId, id)
-    if (item.ownerId !== actorId) throw new ForbiddenException('Forbidden')
-
-    // Dùng questionRepo / answerRepo sau khi tách
-    const questions = await this.questionRepo.listQuestions(id)
-    if (questions.length === 0) {
-      throw new BadRequestException('Kahoot must have at least 1 question before publish')
-    }
-    for (const q of questions) {
-      const answers = await this.answerRepo.listAnswers(q.id)
-      if (answers.length < 2) {
-        throw new BadRequestException(`Question "${q.text ?? q.id}" must have at least 2 answers`)
-      }
-      if (!answers.some(a => a.isCorrect)) {
-        throw new BadRequestException(`Question "${q.text ?? q.id}" must have at least 1 correct answer`)
-      }
-    }
-    return this.repo.updateKahoot(id, { publishedAt: new Date() })
-    } catch (error) {
-      throw error
-    }
-  }
-
-  async unpublishKahoot(actorId: string, id: string) {
+  async publishKahoot(userId: string, id: string) {
     try {
-    const item = await this.getKahootDetail(actorId, id)
-    if (item.ownerId !== actorId) throw new ForbiddenException('Forbidden')
+      const item = await this.getKahootDetail(userId, id)
+      if (item.ownerId !== userId) throw new ForbiddenException('Forbidden')
+
+      // Dùng questionRepo / answerRepo sau khi tách
+      const questions = await this.questionRepo.listQuestions(id)
+      if (questions.length === 0) {
+        throw new BadRequestException('Kahoot must have at least 1 question before publish')
+      }
+      for (const q of questions) {
+        const answers = await this.answerRepo.listAnswers(q.id)
+        if (answers.length < 2) {
+          throw new BadRequestException(`Question "${q.text ?? q.id}" must have at least 2 answers`)
+        }
+        if (!answers.some(a => a.isCorrect)) {
+          throw new BadRequestException(`Question "${q.text ?? q.id}" must have at least 1 correct answer`)
+        }
+      }
+      return this.repo.updateKahoot(id, { publishedAt: new Date() })
+      } catch (error) {
+        if (isUniqueConstraintPrismaError(error)) {
+                throw new BadRequestException('Kahoot not found');
+              }
+        throw error
+      }
+    }
+
+  async unpublishKahoot(userId: string, id: string) {
+    try {
+    const item = await this.getKahootDetail(userId, id)
+    if (item.ownerId !== userId) throw new ForbiddenException('Forbidden')
     return this.repo.updateKahoot(id, { publishedAt: null })
   } catch (error) {
+    if (isUniqueConstraintPrismaError(error)) {
+              throw new BadRequestException('Kahoot not found');
+            }
       throw error
     }
   }
 
-  async duplicateKahoot(actorId: string, id: string) {
+  async duplicateKahoot(userId: string, id: string) {
     try {
     // Kiểm tra quyền xem / quyền duplicate bằng logic hiện có
-    const srcMeta = await this.getKahootDetail(actorId, id);
+    const srcMeta = await this.getKahootDetail(userId, id);
 
     // Transaction để đảm bảo tính toàn vẹn
     const result = await this.prisma.$transaction(async (tx) => {
@@ -148,7 +171,7 @@ async publishKahoot(actorId: string, id: string) {
       // 2) Tạo kahoot mới (metadata)
       const dst = await tx.kahoot.create({
         data: {
-          ownerId: actorId,
+          ownerId: userId,
           title: src.title + ' (copy)',
           description: src.description,
           visibility: 'private',
@@ -206,25 +229,29 @@ async publishKahoot(actorId: string, id: string) {
     });
     return result;
     } catch (error) {
+      if (isUniqueConstraintPrismaError(error)) {
+              throw new BadRequestException('Kahoot not found');
+            }
       throw error
     }
   }
-  // --- thêm 2 hàm assert ---
-
   /**
    * Chỉ owner (hoặc admin – nếu bạn có check role) mới được sửa kahoot.
    * Trả về bản ghi kahoot nếu hợp lệ.
    */
-  async assertKahootOwnerOrAdmin(actorId: string, kahootId: string) {
+  async assertKahootOwnerOrAdmin(userId: string, kahootId: string) {
     try {
     const kahoot = await this.repo.findKahootById(kahootId);
     if (!kahoot) throw new NotFoundException('Kahoot not found');
 
     // TODO: nếu có RolesGuard / quyền admin thì check thêm tại đây
-    const isOwner = kahoot.ownerId === actorId;
+    const isOwner = kahoot.ownerId === userId;
     if (!isOwner) throw new ForbiddenException('Forbidden');
     return kahoot;
     } catch (error) {
+      if (isUniqueConstraintPrismaError(error)) {
+              throw new BadRequestException('Kahoot not found');
+            }
       throw error
     } 
   }
@@ -246,15 +273,17 @@ async publishKahoot(actorId: string, id: string) {
     }
     return q;
     } catch (error) {
+      if (isUniqueConstraintPrismaError(error)) {
+              throw new BadRequestException('Kahoot not found');
+            }
       throw error
     }
   }
 
   /** EXPORT: Trả JSON đầy đủ kahoot + tags + questions + answers */
-  async exportKahoot(actorId: string, id: string) {
+  async exportKahoot(userId: string, id: string) {
     try {
-    // xem được nếu public/unlisted; private thì phải là owner (getKahootDetail đã enforce)
-    await this.getKahootDetail(actorId, id);
+    await this.getKahootDetail(userId, id);
 
     const data = await this.prisma.kahoot.findUnique({
       where: { id },
@@ -299,43 +328,20 @@ async publishKahoot(actorId: string, id: string) {
       exportedAt: new Date().toISOString(),
     };
     } catch (error) {
+      if (isUniqueConstraintPrismaError(error)) {
+              throw new BadRequestException('Kahoot not found');
+            }
       throw error
     }
   }
 
-  /**
-   * IMPORT: Ghi đè toàn bộ nội dung kahoot (questions/answers + tags) từ file JSON.
-   * File JSON format:
-   * {
-   *   "title": "Sinh học 9",
-   *   "description": "...",
-   *   "visibility": "private|public|unlisted",
-   *   "theme": "classic",
-   *   "musicTheme": "space",
-   *   "isTeamModeOk": true,
-   *   "tags": ["Sinh học", "Thiên nhiên"],
-   *   "questions": [
-   *     {
-   *       "text": "Câu hỏi?",
-   *       "imageUrl": null,
-   *       "timeLimit": 30,
-   *       "pointsMultiplier": 1,
-   *       "isMultipleSelect": false,
-   *       "orderIndex": 0,
-   *       "answers": [
-   *         { "text": "Đáp án A", "isCorrect": true, "orderIndex": 0 },
-   *         { "text": "Đáp án B", "isCorrect": false, "orderIndex": 1 }
-   *       ]
-   *     }
-   *   ]
-   * }
-   */
-  async importKahoot(actorId: string, id: string, file?: Express.Multer.File) {
+  // IMPORT: Chỉ owner mới được import vào kahoot của họ
+  async importKahoot(userId: string, id: string, file?: Express.Multer.File) {
     if (!file?.buffer?.length) throw InvalidImportFileException;
 
     // Kiểm tra quyền (private → chỉ owner). Hàm này đã check public/unlisted view
-    const kahoot = await this.getKahootDetail(actorId, id);
-    if (kahoot.ownerId !== actorId) {
+    const kahoot = await this.getKahootDetail(userId, id);
+    if (kahoot.ownerId !== userId) {
       throw new ForbiddenException('Forbidden');
     }
 
@@ -435,6 +441,7 @@ async publishKahoot(actorId: string, id: string) {
     });
     return result;
     } catch (error) {
+      
       throw error
     }
   }
