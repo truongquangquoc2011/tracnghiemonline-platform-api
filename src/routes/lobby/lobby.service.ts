@@ -14,7 +14,7 @@ export class LobbyService {
 
   async createLobby(
     kahootId: string,
-    userId: string, // 👈 đổi thành userId
+    userId: string, //  đổi thành userId
     data: {
       mode: 'classic' | 'team';
       answerOrderRandom: boolean;

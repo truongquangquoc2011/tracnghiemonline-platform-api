@@ -54,12 +54,10 @@ export class LobbyGateway {
         LobbyEvents.LOBBY_STATE,
         await this.service.getLeaderboardByPin(pinCode),
       );
-      this.server
-        .to(pinCode)
-        .emit(LobbyEvents.PLAYER_JOINED, {
-          playerId: player.id,
-          nickname: player.nickname,
-        });
+      this.server.to(pinCode).emit(LobbyEvents.PLAYER_JOINED, {
+        playerId: player.id,
+        nickname: player.nickname,
+      });
     } catch (e: any) {
       this.emitError(client, e.message || 'Failed to join lobby');
     }
