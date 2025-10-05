@@ -7,6 +7,7 @@ import { envConfig } from '../config'
 export function setupSwagger(app: INestApplication) {
   const username = envConfig.swaggerUsername
   const password = envConfig.swaggerPassword
+
   app.use(
     ['/docs', '/docs-json'],
     expressBasicAuth({
@@ -16,6 +17,9 @@ export function setupSwagger(app: INestApplication) {
   )
 
   const document = SwaggerModule.createDocument(app, swaggerConfig)
+
+  // Áp dụng Bearer và API Key cho toàn bộ endpoints
+  document.security = [{ authorization: [] }, { 'X-Api-Key': [] }]
 
   SwaggerModule.setup('docs', app, document, {
     swaggerOptions: {
