@@ -10,30 +10,30 @@ import {
 
 // Thrown when the answer with given ID is not found
 export const AnswerNotFoundException = new NotFoundException({
-  message: 'Error.AnswerNotFound',
+  message: 'Thông báo lỗi! Câu trả lời không tồn tại',
   path: 'answerId',
 })
 
 // Thrown when creating a new answer fails
 export const CreateAnswerFailedException = new UnprocessableEntityException({
-  message: 'Error.CreateAnswerFailed',
+  message: 'Thông báo lỗi! Tạo câu trả lời thất bại',
   path: 'answer',
 })
 
 // Thrown when updating an existing answer fails
 export const UpdateAnswerFailedException = new UnprocessableEntityException({
-  message: 'Error.UpdateAnswerFailed',
+  message: 'Thông báo lỗi! Cập nhật câu trả lời thất bại',
   path: 'answer',
 })
 
 // Thrown when deleting an answer fails
 export const DeleteAnswerFailedException = new UnprocessableEntityException({
-  message: 'Error.DeleteAnswerFailed',
+  message: 'Thông báo lỗi! Xoá câu trả lời thất bại',
   path: 'answerId',
 })
 
 // Thrown when trying to create an answer with duplicate orderIndex or duplicate content (if business rule applies)
 export const DuplicateAnswerException = new ConflictException({
-  message: 'Error.DuplicateAnswer',
+  message: 'Thông báo lỗi! Câu trả lời bị trùng lặp',
   path: 'answer',
 })
