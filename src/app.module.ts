@@ -12,6 +12,8 @@ import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe';
 import { QuestionModule } from './routes/question/question.module';
 import { AnswerModule } from './routes/answer/answer.module';
 import { TagModule } from './routes/tag/tag.module';
+import { FavoritesModule } from './routes/favorites/favorites.module';
+import { CommentsModule } from './routes/comments/comments.module';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { TagModule } from './routes/tag/tag.module';
     QuestionModule,
     AnswerModule,
     TagModule,
+    FavoritesModule,
+    CommentsModule, 
   ],
   controllers: [],
   providers: [
