@@ -94,4 +94,21 @@ export class CommentsService {
       throw error;
     }
   }
+
+  // LIST (threads: cha + replies)
+  async threads(kahootId: string, query: ListCommentsQueryDTO, currentUserId: string) {
+    try {
+      const { page = 1, limit = 20, sort = 'newest' } = query;
+
+      // kahoot viewable?
+      await this.repo.checkViewableOrThrow(kahootId, currentUserId);
+
+      // chỉ lấy các cha, replies sẽ tự gộp trong repo
+      return await this.repo.listThreads(kahootId, page, limit, sort);
+    } catch (error) {
+      // có thể tái dùng ListCommentsFailedException nếu bạn muốn thống nhất
+      // hoặc tạo riêng ListThreadsFailedException
+      throw error;
+    }
+  }
 }

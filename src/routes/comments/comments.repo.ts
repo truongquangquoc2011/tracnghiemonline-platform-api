@@ -29,6 +29,18 @@ export type CommentsList = {
   limit: number;
 };
 
+export type ThreadItem = Omit<CommentRow, 'createdAt'> & {
+  createdAt: string;
+  replies: Array<Omit<CommentRow, 'createdAt'> & { createdAt: string }>;
+};
+
+export type CommentsThreadList = {
+  items: ThreadItem[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
 @Injectable()
 export class CommentsRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -140,5 +152,67 @@ export class CommentsRepository {
       createdAt: it.createdAt.toISOString(),
     }));
     return { items: norm, total, page, limit };
+  }
+
+  async listThreads(
+    kahootId: string,
+    page = 1,
+    limit = 20,
+    sort: 'newest' | 'oldest' = 'newest',
+  ): Promise<CommentsThreadList> {
+    const orderBy: Prisma.CommentOrderByWithRelationInput = {
+      createdAt: (sort === 'oldest' ? 'asc' : 'desc') as Prisma.SortOrder,
+    };
+
+    // 1) Lấy cha
+    const [parents, totalParents] = await this.prisma.$transaction([
+      this.prisma.comment.findMany({
+        where: { kahootId, parentId: null },
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true, kahootId: true, userId: true, content: true, parentId: true,
+          createdAt: true, user: { select: { id: true } },
+        },
+      }),
+      this.prisma.comment.count({ where: { kahootId, parentId: null } }),
+    ]);
+
+    if (parents.length === 0) {
+      return { items: [], total: totalParents, page, limit };
+    }
+
+    const parentIds = parents.map((p) => p.id);
+
+    // 2) Lấy toàn bộ replies của các cha ở trang này
+    const replies = await this.prisma.comment.findMany({
+      where: { kahootId, parentId: { in: parentIds } },
+      orderBy: { createdAt: 'asc' }, // replies mặc định theo thời gian tăng dần
+      select: {
+        id: true, kahootId: true, userId: true, content: true, parentId: true,
+        createdAt: true, user: { select: { id: true } },
+      },
+    });
+
+    // 3) Gộp theo parentId
+    const bucket = new Map<string, Array<typeof replies[number]>>();
+    for (const r of replies) {
+      if (!r.parentId) continue;
+      const arr = bucket.get(r.parentId) ?? [];
+      arr.push(r);
+      bucket.set(r.parentId, arr);
+    }
+
+    const items: ThreadItem[] = parents.map((p) => ({
+      ...p,
+      createdAt: p.createdAt.toISOString(),
+      replies: (bucket.get(p.id) ?? []).map((r) => ({
+        ...r,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    }));
+
+    return { items, total: totalParents, page, limit };
   }
 }
