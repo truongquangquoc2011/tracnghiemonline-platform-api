@@ -5,6 +5,7 @@ import {
   CreateFavoriteFailedException,
   DeleteFavoriteFailedException,
   FavoriteNotFoundException,
+  KahootNotFoundOrPrivateException
 } from './favorites.error';
 import { Prisma, KahootVisibility } from '@prisma/client';
 import { FavoriteListResponse } from './favorites.model';
@@ -20,10 +21,10 @@ export class FavoritesRepository {
       select: { id: true, ownerId: true, visibility: true },
     });
     if (!kahoot) {
-      throw new NotFoundException({ message: 'Error.KahootNotFound', path: 'kahoot' });
+      throw KahootNotFoundOrPrivateException;
     }
     if (kahoot.visibility === KahootVisibility.private && kahoot.ownerId !== userId) {
-      throw new NotFoundException({ message: 'Error.KahootNotFound', path: 'kahoot' });
+      throw KahootNotFoundOrPrivateException;;
     }
     return kahoot;
   }
@@ -114,6 +115,33 @@ export class FavoritesRepository {
       }
       if (error === FavoriteNotFoundException) throw error;
       throw FavoriteNotFoundException;
+    }
+  }
+
+  // Thêm/xoá favorite (toggle)
+  async toggleFavorite(
+    userId: string,
+    kahootId: string,
+  ): Promise<{ status: 'added' | 'removed'; userId: string; kahootId: string; createdAt?: Date }> {
+    await this.checkViewableOrThrow(kahootId, userId);
+
+    try {
+      // TH1: chưa có -> tạo mới
+      const created = await this.prisma.favorite.create({
+        data: { user: { connect: { id: userId } }, kahoot: { connect: { id: kahootId } } },
+        select: { userId: true, kahootId: true, createdAt: true },
+      });
+      return { status: 'added', ...created };
+    } catch (error) {
+      // TH2: đã có (đụng unique index) -> xoá để toggle
+      if (isUniqueConstraintPrismaError(error)) {
+        await this.prisma.favorite.delete({
+          where: { userId_kahootId: { userId, kahootId } },
+        });
+        return { status: 'removed', userId, kahootId };
+      }
+      // còn lại: ném tiếp cho global filter xử lý
+      throw error;
     }
   }
 }

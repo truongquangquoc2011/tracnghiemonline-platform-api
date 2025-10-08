@@ -20,10 +20,10 @@ export class FavoritesService {
     return this.repo.listFavorites(userId, q.page, q.limit, q.sort);
   }
 
-  async add(userId: string, kahootId: string): Promise<{ userId: string; kahootId: string; createdAt: Date }>  {
-    await this.assertUserExists(userId);
-    return this.repo.createFavorite(userId, kahootId);
-  }
+async add(userId: string, kahootId: string): Promise<{ status: 'added' | 'removed'; userId: string; kahootId: string; createdAt?: Date }> {
+  await this.assertUserExists(userId);
+  return this.repo.toggleFavorite(userId, kahootId);
+}
 
   async remove(userId: string, kahootId: string): Promise<{ ok: true }> {
     await this.assertUserExists(userId);

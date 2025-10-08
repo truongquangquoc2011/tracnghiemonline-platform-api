@@ -19,7 +19,6 @@ export class FavoritesController {
   }
 }
 
-
 @Controller('kahoots/:kahootId/favorites')
 export class KahootFavoritesController {
   constructor(private readonly service: FavoritesService) {}
@@ -29,7 +28,7 @@ export class KahootFavoritesController {
   addFavorite(
     @ActiveUser('userId') userId: string,
     @Param() params: FavoriteParamDTO,
-  ): Promise<{ userId: string; kahootId: string; createdAt: Date }> {
+  ): Promise<{ status: 'added' | 'removed'; userId: string; kahootId: string; createdAt?: Date }> {
     return this.service.add(userId, params.kahootId);
   }
 

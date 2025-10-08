@@ -10,11 +10,16 @@ export const FavoriteNotFoundException = new NotFoundException({
 });
 
 export const CreateFavoriteFailedException = new BadRequestException({
-  message: 'Thông báo lỗi! Tạo Kahoot yêu thích thất bại',
+  message: 'Thông báo lỗi! Tạo Kahoot yêu thích thất bại. Kahoot đã được yêu thích?',
   path: 'favorite',
 });
 
 export const DeleteFavoriteFailedException = new UnprocessableEntityException({
   message: 'Thông báo lỗi! Xoá Kahoot yêu thích thất bại',
   path: 'favorite',
+});
+
+export const KahootNotFoundOrPrivateException = new NotFoundException({
+  message: 'Thông báo lỗi! Kahoot không tồn tại hoặc là riêng tư',
+  path: 'kahoot',
 });
