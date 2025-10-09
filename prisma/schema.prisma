@@ -534,18 +534,29 @@ model Challenge {
   creator             User   @relation("UserChallenges", fields: [creatorId], references: [id], onDelete: Cascade)
   attempts            ChallengeAttempt[]
 
+  @@index([kahootId])
+  @@index([creatorId])
+  @@index([status])
+  @@index([startAt])
+  @@index([dueAt])
   @@map("challenges")
+
 }
 
 model ChallengeAttempt {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  challengeId String   @db.ObjectId
-  userId      String?  @db.ObjectId
-  nickname    String
-  startedAt   DateTime @default(now())
-  submittedAt DateTime?
-  scoreTotal  Float
-  streakMax   Int
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  challengeId     String   @db.ObjectId
+  userId          String?  @db.ObjectId
+  nickname        String
+  startedAt       DateTime @default(now())
+  submittedAt     DateTime?
+  scoreTotal      Float    @default(0)
+  streakMax       Int      @default(0)
+
+  // Snapshot thứ tự để cố định random lúc start
+  questionOrder    String[] @default([])        // ✅ mảng questionId theo thứ tự
+  answerOrderMap   Json?                        // { [questionId]: string[] answerId }
+  settingsSnapshot Json?                        // copy flag/tùy chọn chấm điểm tại thời điểm start
 
   // Relations
   challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
@@ -553,11 +564,13 @@ model ChallengeAttempt {
   responses   ChallengeResponse[]
 
   @@index([challengeId, userId])
+  @@index([challengeId, scoreTotal(sort: Desc)])  // leaderboard
   @@map("challenge_attempts")
+
 }
 
 model ChallengeResponse {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+    id            String   @id @default(auto()) @map("_id") @db.ObjectId
   attemptId     String   @db.ObjectId
   questionId    String   @db.ObjectId
   answerId      String?  @db.ObjectId
@@ -573,7 +586,11 @@ model ChallengeResponse {
   question      KahootQuestion   @relation(fields: [questionId], references: [id], onDelete: Cascade)
   answer        KahootAnswer?    @relation(fields: [answerId], references: [id])
 
+  @@unique([attemptId, questionId])           // <— một câu hỏi chỉ có 1 bản ghi/attempt
+  @@index([attemptId])
+  @@index([questionId])
   @@map("challenge_responses")
+
 }
 
 ////////////////////////////////////////////////////////////
