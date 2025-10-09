@@ -73,4 +73,16 @@ export class CommentsController {
   ) {
     return this.commentsService.list(p.kahoot_id, q, userId);
   }
+
+  /** -------------------- LIST THREADS (parents + replies) -------------------- **/
+  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Get('threads')
+  @HttpCode(HttpStatus.OK)
+  async threads(
+    @Param() p: KahootParamDTO,
+    @Query() q: ListCommentsQueryDTO,
+    @ActiveUser('userId') userId: string,
+  ) {
+    return this.commentsService.threads(p.kahoot_id, q, userId);
+  }
 }
