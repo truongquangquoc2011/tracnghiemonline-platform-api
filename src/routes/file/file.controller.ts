@@ -1,19 +1,25 @@
+// src/routes/file/file.controller.ts
 import {
   Controller,
   Post,
+  Get,
   HttpCode,
   HttpStatus,
   UploadedFile,
   UseInterceptors,
   Body,
-  BadRequestException,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FilesService } from './file.service';
 import { Auth } from 'src/shared/decorator/auth.decorator';
 import { AuthTypes, ConditionGuard } from 'src/shared/constants/auth.constant';
 import { UploadImageReqDTO, UploadThemeMusicReqDTO } from './dto/file.dto';
-import { UploadImageResType, UploadThemeMusicResType } from './file.model';
+import {
+  UploadImageResType,
+  UploadThemeMusicResType,
+  GetAudioListResType,
+} from './file.model';
 import { NoFileProvidedException } from 'src/shared/constants/file-error.constant';
 import { ActiveUser } from 'src/shared/decorator/active-user.decorator';
 import { audioMulterOptions } from 'src/shared/utils/multer.audio.util';
@@ -24,8 +30,6 @@ export class FilesController {
 
   /**
    * Admin-only: Upload image to Cloudinary & persist a file record.
-   * - reads ActiveUser (must be authenticated)
-   * - no ownerId in body; ownerId = ActiveUser.userId
    */
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
   @Post('image')
@@ -44,7 +48,10 @@ export class FilesController {
       file,
     });
   }
-  
+
+  /**
+   * Admin-only: Upload audio (theme music) for global system usage.
+   */
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
   @Post('audio')
   @UseInterceptors(FileInterceptor('file', audioMulterOptions))
@@ -61,5 +68,30 @@ export class FilesController {
       usage: body.usage ?? 'THEME_MUSIC',
       file,
     });
+  }
+
+  /**
+   * Public: Get all audio files (for example: THEME_MUSIC)
+   * Supports pagination: ?usage=THEME_MUSIC&page=1&limit=20&onlyReady=true
+   */
+  @Get('audio')
+  @HttpCode(HttpStatus.OK)
+  async getAudioList(
+    @Query('usage') usage?: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+    @Query('onlyReady') onlyReady = true,
+  ): Promise<GetAudioListResType> {
+    const parsedPage = Number(page) > 0 ? Number(page) : 1;
+    const parsedLimit = Number(limit) > 0 ? Number(limit) : 20;
+    const parsedOnlyReady =
+      typeof onlyReady === 'string' ? onlyReady === 'true' : Boolean(onlyReady);
+
+    return this.filesService.listAudioGlobal(
+      usage,
+      parsedPage,
+      parsedLimit,
+      parsedOnlyReady,
+    );
   }
 }

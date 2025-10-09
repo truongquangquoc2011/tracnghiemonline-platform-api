@@ -27,6 +27,7 @@ export const FILE_ERRORS = {
   INVALID_IMAGE_FILE: 'Tệp hình ảnh không hợp lệ.',
   INVALID_AUDIO_FILE: 'Tệp âm thanh không hợp lệ.',
   QUERY_FAILED: 'Truy xuất thất bại',
+  UPLOAD_FAILED: 'Đăng tải ảnh thất bại'
 } as const;
 
 export enum AudioUsage {

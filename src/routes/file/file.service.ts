@@ -1,15 +1,34 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+// src/routes/file/file.service.ts
+import {
+  Injectable,
+  BadRequestException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { CloudinaryService } from 'src/shared/services/cloudinary.service';
 import { FilesRepository } from './file.repo';
-import { UploadImageResType, UploadThemeMusicResType } from './file.model';
+import {
+  UploadImageResType,
+  UploadThemeMusicResType,
+  GetAudioListResType,
+} from './file.model';
 import { AuthRepository } from '../auth/auth.repo';
-import { UserNotFoundException } from 'src/shared/constants/file-error.constant';
 import {
   FILE_DEFAULTS,
   FILE_ERRORS,
   FILE_MESSAGES,
   FileStatus,
 } from 'src/shared/constants/file.constant';
+import { PrismaService } from 'src/shared/services/prisma.service';
+
+//  import các helper mới
+import {
+  assertOwnerUsable,
+  assertImageFile,
+  assertAudioFile,
+  parseUsage,
+  toISO,
+} from 'src/shared/helper/file.helper';
 
 type UploadImageInput = {
   ownerId: string;
@@ -24,102 +43,147 @@ type UploadMusicInput = {
 
 @Injectable()
 export class FilesService {
+  private readonly logger = new Logger(FilesService.name);
+
   constructor(
     private readonly cloudinaryService: CloudinaryService,
     private readonly filesRepo: FilesRepository,
     private readonly authRepository: AuthRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
-  private async assertOwnerUsable(ownerId: string) {
-    const user = await this.authRepository.findUserIncludeRoleById(ownerId);
-    if (!user) throw UserNotFoundException;
-    await this.authRepository.validateUserStatus(ownerId);
-    return user;
-  }
-
-  private assertImageFile(file: Express.Multer.File) {
-    if (!file?.mimetype?.startsWith('image/')) {
-      throw new BadRequestException(FILE_ERRORS.INVALID_IMAGE_FILE);
-    }
-  }
-  private assertAudioFile(file: Express.Multer.File) {
-    if (!file?.mimetype?.startsWith('audio/')) {
-      // chấp nhận một số trường hợp audio gửi dạng video/webm
-      const okAlt = file?.mimetype?.startsWith('video/webm');
-      if (!okAlt) throw new BadRequestException(FILE_ERRORS.INVALID_AUDIO_FILE);
-    }
-  }
+  // ========= Uploads =========
 
   async uploadAndCreateImageRecord(
     input: UploadImageInput,
   ): Promise<UploadImageResType> {
-    await this.assertOwnerUsable(input.ownerId);
-    this.assertImageFile(input.file);
+    //  dùng helper
+    await assertOwnerUsable(this.authRepository, input.ownerId);
+    assertImageFile(input.file);
 
-    const secureUrl = await this.cloudinaryService.uploadImage(input.file);
+    let secureUrl = '';
+    try {
+      secureUrl = await this.cloudinaryService.uploadImage(input.file);
 
-    const usage = input.usage ?? FILE_DEFAULTS.IMAGE_USAGE;
+      const usage = input.usage ?? FILE_DEFAULTS.IMAGE_USAGE;
 
-    const created = await this.filesRepo.create({
-      ownerId: input.ownerId,
-      url: secureUrl,
-      mime: input.file.mimetype,
-      size: input.file.size ?? 0,
-      metaJson: JSON.stringify({
-        usage,
-        status: FileStatus.READY,
-        originalname: input.file.originalname,
-      }),
-    });
+      const createdFile = await this.prisma.$transaction((tx) =>
+        this.filesRepo.createFile(
+          {
+            ownerId: input.ownerId,
+            url: secureUrl,
+            mime: input.file.mimetype,
+            size: input.file.size ?? 0,
+            metaJson: JSON.stringify({
+              usage,
+              status: FileStatus.READY,
+              originalname: input.file.originalname,
+            }),
+          },
+          tx,
+        ),
+      );
 
-    return {
-      message: FILE_MESSAGES.IMAGE_UPLOADED,
-      file: {
-        id: created.id,
-        url: created.url,
-        mime: created.mime,
-        size: created.size,
-        createdAt:
-          created.createdAt.toISOString?.() ?? String(created.createdAt),
-        usage,
-      },
-    };
+      return {
+        message: FILE_MESSAGES.IMAGE_UPLOADED,
+        file: {
+          id: createdFile.id,
+          url: createdFile.url,
+          mime: createdFile.mime,
+          size: createdFile.size,
+          createdAt: toISO(createdFile.createdAt), //  helper
+          usage,
+        },
+      };
+    } catch (error) {
+      this.logger.error(`uploadAndCreateImageRecord failed: ${String(error)}`);
+      throw error instanceof BadRequestException
+        ? error
+        : new InternalServerErrorException(FILE_ERRORS.UPLOAD_FAILED);
+    }
   }
 
   async uploadAndCreateMusicRecord(
     input: UploadMusicInput,
   ): Promise<UploadThemeMusicResType> {
-    await this.assertOwnerUsable(input.ownerId);
-    this.assertAudioFile(input.file);
+    await assertOwnerUsable(this.authRepository, input.ownerId); //  helper
+    assertAudioFile(input.file); //  helper (đã tự cho phép video/webm)
 
-    const secureUrl = await this.cloudinaryService.uploadAudio(input.file);
+    let secureUrl = '';
+    try {
+      secureUrl = await this.cloudinaryService.uploadAudio(input.file);
 
-    const usage = input.usage ?? FILE_DEFAULTS.MUSIC_USAGE;
+      const usage = input.usage ?? FILE_DEFAULTS.MUSIC_USAGE;
 
-    const created = await this.filesRepo.create({
-      ownerId: input.ownerId,
-      url: secureUrl,
-      mime: input.file.mimetype,
-      size: input.file.size ?? 0,
-      metaJson: JSON.stringify({
-        usage,
-        status: FileStatus.READY,
-        originalname: input.file.originalname,
-      }),
-    });
+      const createdFile = await this.prisma.$transaction((tx) =>
+        this.filesRepo.createFile(
+          {
+            ownerId: input.ownerId,
+            url: secureUrl,
+            mime: input.file.mimetype,
+            size: input.file.size ?? 0,
+            metaJson: JSON.stringify({
+              usage,
+              status: FileStatus.READY,
+              originalname: input.file.originalname,
+            }),
+          },
+          tx,
+        ),
+      );
 
-    return {
-      message: FILE_MESSAGES.THEME_MUSIC_UPLOADED,
-      file: {
-        id: created.id,
-        url: created.url,
-        mime: created.mime,
-        size: created.size,
-        createdAt:
-          created.createdAt.toISOString?.() ?? String(created.createdAt),
-        usage,
-      },
-    };
+      return {
+        message: FILE_MESSAGES.THEME_MUSIC_UPLOADED,
+        file: {
+          id: createdFile.id,
+          url: createdFile.url,
+          mime: createdFile.mime,
+          size: createdFile.size,
+          createdAt: toISO(createdFile.createdAt), //  helper
+          usage,
+        },
+      };
+    } catch (error) {
+      this.logger.error(`uploadAndCreateMusicRecord failed: ${String(error)}`);
+      throw error instanceof BadRequestException
+        ? error
+        : new InternalServerErrorException(FILE_ERRORS.UPLOAD_FAILED);
+    }
   }
-  
+
+  // ========= GET audio (global) =========
+  async listAudioGlobal(
+    usage: string | undefined,
+    page = 1,
+    limit = 20,
+    onlyReady = true,
+  ): Promise<GetAudioListResType> {
+    try {
+      const { items, total } = await this.prisma.$transaction((tx) =>
+        this.filesRepo.findAllAudioGlobal(
+          { usage, page, limit, onlyReady },
+          tx,
+        ),
+      );
+
+      return {
+        items: items.map((file) => ({
+          id: file.id,
+          url: file.url,
+          mime: file.mime,
+          size: file.size,
+          createdAt: toISO(file.createdAt), //  helper
+          usage:
+            parseUsage(file.metaJson) ?? usage ?? FILE_DEFAULTS.MUSIC_USAGE, //  helper
+        })),
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      };
+    } catch (error) {
+      this.logger.error(`listAudioGlobal failed: ${String(error)}`);
+      throw new InternalServerErrorException(FILE_ERRORS.QUERY_FAILED);
+    }
+  }
 }

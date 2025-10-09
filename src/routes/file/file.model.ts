@@ -46,14 +46,15 @@ export const FileItemSchema = z.object({
   usage: z.string(),
 });
 
-// ====== GET list by usage ======
-export const GetAudioByUsageReqSchema = z.object({
-  usage: z.string().max(50),
+// ===== GET list audio (global) =====
+export const GetAudioListReqSchema = z.object({
+  usage: z.string().max(50).optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  onlyReady: z.coerce.boolean().optional().default(true), // lọc status READY trong metaJson
 });
 
-export const GetAudioByUsageResSchema = z.object({
+export const GetAudioListResSchema = z.object({
   items: z.array(FileItemSchema),
   page: z.number().int(),
   limit: z.number().int(),
@@ -61,14 +62,7 @@ export const GetAudioByUsageResSchema = z.object({
   totalPages: z.number().int(),
 });
 
-// ====== GET latest by usage ======
-export const GetLatestAudioByUsageResSchema = z.object({
-  file: FileItemSchema,
-});
-
-
 export type UploadImageResType = z.infer<typeof UploadImageResSchema>;
 export type UploadThemeMusicResType = z.infer<typeof UploadThemeMusicResSchema>;
-export type GetAudioByUsageReqType = z.infer<typeof GetAudioByUsageReqSchema>;
-export type GetAudioByUsageResType = z.infer<typeof GetAudioByUsageResSchema>;
-export type GetLatestAudioByUsageResType = z.infer<typeof GetLatestAudioByUsageResSchema>;
+export type GetAudioListReqType = z.infer<typeof GetAudioListReqSchema>;
+export type GetAudioListResType = z.infer<typeof GetAudioListResSchema>;
