@@ -15,6 +15,11 @@ export const ImageBufferNotFoundException = new InternalServerErrorException({
   path: 'image',
 })
 
+export const AudioBufferNotFoundException = new InternalServerErrorException({
+  message: 'Error.ImageBufferNotFound',
+  path: 'audio',
+})
+
 export const UploadToCloudinaryFailedException = new InternalServerErrorException({
   message: 'Error.UploadToCloudinaryFailed',
   path: 'image',

@@ -14,6 +14,7 @@ import { AnswerModule } from './routes/answer/answer.module';
 import { TagModule } from './routes/tag/tag.module';
 import { FavoritesModule } from './routes/favorites/favorites.module';
 import { CommentsModule } from './routes/comments/comments.module';
+import { FileModule } from './routes/file/file.module';
 
 @Module({
   imports: [
@@ -39,7 +40,8 @@ import { CommentsModule } from './routes/comments/comments.module';
     AnswerModule,
     TagModule,
     FavoritesModule,
-    CommentsModule, 
+    CommentsModule,
+    FileModule, 
   ],
   controllers: [],
   providers: [

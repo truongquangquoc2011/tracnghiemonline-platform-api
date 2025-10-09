@@ -12,7 +12,7 @@ import {
 import path from 'path';
 import sharp from 'sharp';
 import retry from 'async-retry';
-import { ImageBufferNotFoundException } from '../constants/file-error.constant';
+import { AudioBufferNotFoundException, ImageBufferNotFoundException } from '../constants/file-error.constant';
 
 @Injectable()
 export class CloudinaryService {
@@ -172,6 +172,91 @@ export class CloudinaryService {
       },
     );
     // Return the final Cloudinary URL
+    return result;
+  }
+
+  /**
+   * Upload audio (mp3/m4a/ogg/...) to Cloudinary using resource_type 'video'.
+   * Returns secure_url string.
+   */
+  async uploadAudio(file: Express.Multer.File): Promise<string> {
+    if (!file?.buffer) throw AudioBufferNotFoundException;
+
+    const publicId = this.toPublicId(file.originalname) || 'audio';
+
+    const retries = parseInt(process.env.CLOUDINARY_RETRY_ATTEMPTS ?? '3', 10);
+    const minTimeout = parseInt(
+      process.env.CLOUDINARY_MIN_TIMEOUT_MS ?? '1000',
+      10,
+    );
+    const maxTimeout = parseInt(
+      process.env.CLOUDINARY_MAX_TIMEOUT_MS ?? '5000',
+      10,
+    );
+
+    const result = await retry<string>(
+      async (bail, attempt) => {
+        return new Promise<string>((resolve, reject) => {
+          const opts = {
+            folder: this.defaultFolder,
+            resource_type: 'video' as const, // IMPORTANT: audio = video in Cloudinary
+            public_id: publicId,
+            use_filename: true,
+            unique_filename: true,
+            overwrite: false,
+            timeout: 60_000,
+          };
+
+          const stream = cloudinary.uploader.upload_stream(
+            opts,
+            (
+              error: UploadApiErrorResponse | undefined,
+              res: UploadApiResponse | undefined,
+            ) => {
+              if (error) {
+                const httpCode = (error as any)?.http_code as
+                  | number
+                  | undefined;
+                this.logger.error(
+                  `Audio upload failed (attempt ${attempt}): ${error.message}`,
+                );
+                if (httpCode === 401 || httpCode === 403) {
+                  return bail(
+                    new BadRequestException(
+                      `Cloudinary auth failed: ${error.message}`,
+                    ),
+                  );
+                }
+                return reject(
+                  new BadRequestException(`Upload failed: ${error.message}`),
+                );
+              }
+              if (!res) {
+                return reject(
+                  new BadRequestException('Upload failed: No result returned'),
+                );
+              }
+              this.logger.log(`Uploaded audio: ${res.secure_url}`);
+              resolve(res.secure_url);
+            },
+          );
+
+          stream.end(file.buffer);
+        });
+      },
+      {
+        retries,
+        factor: 2,
+        minTimeout,
+        maxTimeout,
+        randomize: true,
+        onRetry: (err, attempt) =>
+          this.logger.warn(
+            `Retrying audio upload (#${attempt}): ${String(err)}`,
+          ),
+      },
+    );
+
     return result;
   }
 }
