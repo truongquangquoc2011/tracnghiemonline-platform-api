@@ -88,7 +88,7 @@ export class QuestionController {
     return this.service.deleteQuestion(userId, kahootId, id);
   }
 
-  /**
+    /**
    * Reorder danh sách câu hỏi trong kahoot
    */
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })

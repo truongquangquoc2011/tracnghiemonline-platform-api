@@ -14,7 +14,7 @@ import { AnswerModule } from './routes/answer/answer.module';
 import { TagModule } from './routes/tag/tag.module';
 import { FavoritesModule } from './routes/favorites/favorites.module';
 import { CommentsModule } from './routes/comments/comments.module';
-
+import { ChallengeModule } from './routes/challenge/challenge.module';
 @Module({
   imports: [
     SharedModule,
@@ -39,7 +39,8 @@ import { CommentsModule } from './routes/comments/comments.module';
     AnswerModule,
     TagModule,
     FavoritesModule,
-    CommentsModule, 
+    CommentsModule,
+    ChallengeModule,
   ],
   controllers: [],
   providers: [
