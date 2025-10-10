@@ -25,12 +25,12 @@ import { FileModule } from './routes/file/file.module';
         {
           name: 'short',
           ttl: 60000,
-          limit: 5,
+          limit: 60,
         },
         {
           name: 'long',
           ttl: 120000,
-          limit: 7,
+          limit: 300,
         },
       ],
     }),
