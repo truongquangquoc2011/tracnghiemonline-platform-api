@@ -31,9 +31,9 @@ export class QuestionController {
   getQuestion(
     @ActiveUser('userId') userId: string | undefined,
     @Param('kahootId') kahootId: string,
-    @Param('id') id: string
+    @Param('id') id: string,
   ) {
-    return this.service.getQuestion(userId,kahootId,id);
+    return this.service.getQuestion(userId, kahootId, id);
   }
 
   /**
@@ -43,7 +43,7 @@ export class QuestionController {
   @Get()
   listQuestions(
     @ActiveUser('userId') userId: string | undefined,
-    @Param('kahootId') kahootId: string
+    @Param('kahootId') kahootId: string,
   ) {
     return this.service.listQuestions(userId, kahootId);
   }
@@ -61,6 +61,19 @@ export class QuestionController {
     return this.service.createQuestion(userId, kahootId, body);
   }
 
+  /**
+   * Reorder danh sách câu hỏi trong kahoot
+   */
+  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Patch('reorder')
+  reorderQuestions(
+    @ActiveUser('userId') userId: string,
+    @Param('kahootId') kahootId: string,
+    @Body() body: ReorderQuestionsBodyDTO,
+  ) {
+    return this.service.reorderQuestions(userId, kahootId, body.order);
+  }
+  
   /**
    * Cập nhật câu hỏi trong kahoot
    */
@@ -86,18 +99,5 @@ export class QuestionController {
     @Param('id') id: string,
   ) {
     return this.service.deleteQuestion(userId, kahootId, id);
-  }
-
-  /**
-   * Reorder danh sách câu hỏi trong kahoot
-   */
-  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
-  @Patch('/reorder')
-  reorderQuestions(
-    @ActiveUser('userId') userId: string,
-    @Param('kahootId') kahootId: string,
-    @Body() body: ReorderQuestionsBodyDTO,
-  ) {
-    return this.service.reorderQuestions(userId, kahootId, body.order);
   }
 }
