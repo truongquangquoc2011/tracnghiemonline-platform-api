@@ -162,7 +162,7 @@ export class AuthService {
       }
 
       // find role
-      const roleId = await this.rolesService.getClientRoleId();
+      
       // find name
       const role = await this.authRepository.findRole(user.role);
       if (!role) throw RoleNotFoundException;

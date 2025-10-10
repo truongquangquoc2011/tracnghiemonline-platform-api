@@ -24,6 +24,11 @@ export class LobbyService {
       settingsJson?: string;
     },
   ) {
+    if (!userId) {
+    throw new ForbiddenException(
+      'Missing userId — bạn cần đăng nhập trước khi tạo lobby.',
+    );
+  }
     return this.repo.createLobby(kahootId, userId, data);
   }
 

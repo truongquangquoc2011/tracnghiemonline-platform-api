@@ -15,6 +15,8 @@ import { TagModule } from './routes/tag/tag.module';
 import { FavoritesModule } from './routes/favorites/favorites.module';
 import { CommentsModule } from './routes/comments/comments.module';
 import { ChallengeModule } from './routes/challenge/challenge.module';
+import { FileModule } from './routes/file/file.module';
+
 @Module({
   imports: [
     SharedModule,
@@ -24,12 +26,12 @@ import { ChallengeModule } from './routes/challenge/challenge.module';
         {
           name: 'short',
           ttl: 60000,
-          limit: 5,
+          limit: 60,
         },
         {
           name: 'long',
           ttl: 120000,
-          limit: 7,
+          limit: 300,
         },
       ],
     }),
@@ -41,6 +43,7 @@ import { ChallengeModule } from './routes/challenge/challenge.module';
     FavoritesModule,
     CommentsModule,
     ChallengeModule,
+    FileModule, 
   ],
   controllers: [],
   providers: [
