@@ -61,15 +61,15 @@ export class KahootBankRepository {
    * @param orderBy - Thứ tự sắp xếp
    * @returns Array kahoots
    */
-  async listKahoots(where: any, page: number, limit: number, orderBy: any) {
-    return this.prismaService.kahoot.findMany({
-      where,
-      skip: (page - 1) * limit,
-      take: limit,
-      orderBy,
-      select: this.CONFIG.SELECT_KAHOOT_FIELDS,
-    })
-  }
+  async listKahoots(where: any, page: number, limit: number, orderBy: any, ownerId: string) {
+  return this.prismaService.kahoot.findMany({
+    where: { ...where, ownerId }, 
+    skip: (page - 1) * limit,
+    take: limit,
+    orderBy,
+    select: this.CONFIG.SELECT_KAHOOT_FIELDS,
+  })
+}
 
   /**
    * Đếm số kahoots theo filter.
