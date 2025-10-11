@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ChallengeRepository } from './challenge.repo';
 import {
   CreateChallengeBodyDTO,
@@ -16,11 +16,126 @@ import {
   SubmitAttemptFailedException,
 } from './challenge.error';
 import { isUniqueConstraintPrismaError } from 'src/shared/helper';
+import { ChallengeStatus } from '@prisma/client';
+
+// shuffle ổn định theo seed (LCG đơn giản)
+function seededShuffle<T>(items: T[], seed: string): T[] {
+  let s = 0;
+  for (let i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) >>> 0;
+  const arr = items.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    const j = s % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 @Injectable()
 export class ChallengeService {
   constructor(private readonly repo: ChallengeRepository) {}
-  // ChallengeService
+   async getNextQuestionForAttempt(attemptId: string, userId: string | null) {
+    const attempt = await this.repo.findAttemptWithChallengeAndQA(attemptId);
+    if (!attempt) throw new NotFoundException('Attempt not found');
+
+    // Quyền: owner hoặc chính người làm (nếu kahoot private)
+    const isOwner =
+      userId &&
+      (attempt.challenge.kahoot.ownerId === userId ||
+        attempt.challenge.creatorId === userId);
+    const isSelf = userId && attempt.userId === userId;
+
+    if (attempt.challenge.kahoot.visibility === 'private' && !(isOwner || isSelf)) {
+      throw new ForbiddenException('You are not allowed to view this attempt');
+    }
+
+    // Trạng thái/time window
+    const ch = attempt.challenge;
+    if (ch.status !== ChallengeStatus.open) {
+      throw new BadRequestException('Challenge is not open');
+    }
+    const now = new Date();
+    if (ch.startAt && now < ch.startAt) {
+      throw new BadRequestException('Challenge has not started yet');
+    }
+    if (ch.dueAt && now > ch.dueAt) {
+      throw new BadRequestException('Challenge is already due');
+    }
+
+    // Thứ tự câu hỏi
+    let questions = attempt.challenge.kahoot.questions.map(q => ({
+      id: q.id,
+      text: q.text,
+      imageUrl: q.imageUrl,
+      videoUrl: q.videoUrl,
+      orderIndex: q.orderIndex ?? 0,
+      timeLimit: q.timeLimit,
+      pointsMultiplier: q.pointsMultiplier,
+      isMultipleSelect: q.isMultipleSelect,
+      answers: q.answers.map(a => ({
+        id: a.id,
+        text: a.text,
+        shape: a.shape,
+        colorHex: a.colorHex,
+        orderIndex: a.orderIndex ?? 0,
+      })),
+    }));
+
+    if (ch.questionOrderRandom) {
+      questions = seededShuffle(questions, attemptId).map((q, i) => ({
+        ...q,
+        orderIndex: i,
+      }));
+    } else {
+      questions.sort((a, b) => a.orderIndex - b.orderIndex);
+    }
+
+    // Lấy các question đã trả lời
+    const answeredSet = new Set(
+      (await this.repo.listAnsweredQuestionIds(attemptId)).map(x => x.questionId),
+    );
+
+    const answeredCount = answeredSet.size;
+    const total = questions.length;
+
+    // Tìm câu đầu tiên chưa trả lời
+    const next = questions.find(q => !answeredSet.has(q.id));
+
+    if (!next) {
+      return {
+        done: true,
+        canSubmit: true,
+        progress: { answered: answeredCount, total },
+        message: 'All questions answered. You can submit now.',
+      };
+    }
+
+    // Random answers nếu cần, ổn định theo attemptId:questionId
+    let answers = next.answers.slice();
+    if (ch.answerOrderRandom) {
+      answers = seededShuffle(answers, `${attemptId}:${next.id}`).map((a, i) => ({
+        ...a,
+        orderIndex: i,
+      }));
+    } else {
+      answers.sort((a, b) => a.orderIndex - b.orderIndex);
+    }
+
+    return {
+      done: false,
+      progress: { index: answeredCount + 1, total }, // ví dụ câu số 2/10
+      question: {
+        id: next.id,
+        text: next.text,
+        imageUrl: next.imageUrl,
+        videoUrl: next.videoUrl,
+        timeLimit: next.timeLimit,
+        pointsMultiplier: next.pointsMultiplier,
+        isMultipleSelect: next.isMultipleSelect,
+        answers, // không có isCorrect
+      },
+    };
+  }
 
 // A) LIST challenges
 async listChallenges(query: any, userId: string | null) {

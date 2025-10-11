@@ -526,4 +526,64 @@ export class ChallengeRepository {
     });
     return updated;
   }
+
+  // Lấy attempt + challenge + kahoot + questions + answers
+  async findAttemptWithChallengeAndQA(attemptId: string) {
+    return this.prisma.challengeAttempt.findUnique({
+      where: { id: attemptId },
+      select: {
+        id: true,
+        userId: true,
+        nickname: true,
+        startedAt: true,
+        challenge: {
+          select: {
+            id: true,
+            status: true,
+            startAt: true,
+            dueAt: true,
+            creatorId: true,
+            questionOrderRandom: true,
+            answerOrderRandom: true,
+            kahoot: {
+              select: {
+                ownerId: true,
+                visibility: true,
+                questions: {
+                  select: {
+                    id: true,
+                    text: true,
+                    imageUrl: true,
+                    videoUrl: true,
+                    orderIndex: true,
+                    timeLimit: true,
+                    pointsMultiplier: true,
+                    isMultipleSelect: true,
+                    answers: {
+                      select: {
+                        id: true,
+                        text: true,
+                        shape: true,
+                        colorHex: true,
+                        orderIndex: true,
+                        // không lấy isCorrect
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // Lấy danh sách questionId đã trả lời trong attempt
+  async listAnsweredQuestionIds(attemptId: string) {
+    return this.prisma.challengeResponse.findMany({
+      where: { attemptId },
+      select: { questionId: true },
+    });
+  }
 }

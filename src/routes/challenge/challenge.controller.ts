@@ -137,6 +137,14 @@ async listAttemptResponses(
     return await this.service.createChallenge(body, userId);
   }
 
+  // Lấy câu hỏi kế tiếp cho 1 attempt
+  @UseGuards(OptionalAccessTokenGuard)
+  @Get('challenge-attempts/:attemptId/next-question')
+  async getNextQuestion(@Param('attemptId') attemptId: string, @Req() req: any) {
+    const userId = req.user?.userId ?? null;
+    return this.service.getNextQuestionForAttempt(attemptId, userId);
+  }
+
   /** UPDATE (chỉ owner) */
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
   @Patch(':id')
