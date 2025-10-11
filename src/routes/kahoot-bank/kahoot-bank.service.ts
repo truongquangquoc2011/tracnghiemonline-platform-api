@@ -20,11 +20,12 @@ export class KahootBankService {
 
   // Danh sách kahoot với phân trang, lọc, tìm kiếm
   async listKahoots(userId: string, query: any) {
-    try {
-    const { page, limit, sort, ownerId, visibility, tagId, q } = query
-    const where: any = {}
+  try {
+    const { page, limit, sort, visibility, tagId, q } = query
 
-    if (ownerId) where.ownerId = ownerId
+    // GHIM điều kiện chủ sở hữu
+    const where: any = { ownerId: userId }
+
     if (visibility) where.visibility = visibility
     if (tagId) where.kahootTags = { some: { tagId } }
     if (q) where.title = { contains: q, mode: 'insensitive' }
@@ -33,15 +34,19 @@ export class KahootBankService {
       ? { [sort.split(':')[0]]: (sort.split(':')[1] ?? 'desc') }
       : { createdAt: 'desc' }
 
+    const currentPage = Number(page) || 1
+    const pageSize = Math.min(Number(limit) || 20, 100)
+
     const [items, total] = await Promise.all([
-      this.repo.listKahoots(where, page ?? 1, limit ?? 20, orderBy),
+      this.repo.listKahoots(where, currentPage, pageSize, orderBy, userId),
       this.repo.countKahoots(where),
     ])
-    return { items, total, page: page ?? 1, limit: limit ?? 20 }
-    } catch (error) {
-      throw new BadRequestException(error.message)
-    }
+
+    return { items, total, page: currentPage, limit: pageSize }
+  } catch (error) {
+    throw new BadRequestException(error.message)
   }
+}
 
   // Chi tiết kahoot, kiểm tra quyền xem
   async getKahootDetail(userId: string, id: string) {

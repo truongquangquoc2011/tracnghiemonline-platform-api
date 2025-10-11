@@ -20,7 +20,6 @@ export const ListKahootQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   sort: z.string().optional(),       // e.g. 'createdAt:desc'
-  ownerId: z.string().optional(),
   visibility: VisibilitySchema.optional(),
   tagId: z.string().optional(),
   q: z.string().optional(),
