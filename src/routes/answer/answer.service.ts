@@ -1,13 +1,15 @@
+import { AnswerShape } from '@prisma/client';
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { AnswerRepository } from './answer.repo';
-import {  
-  CreateAnswerFailedException, 
-  UpdateAnswerFailedException, 
+import {
+  CreateAnswerFailedException,
+  UpdateAnswerFailedException,
   DeleteAnswerFailedException,
   AnswerNotFoundException,
 } from './answer.error';
 import { PrismaService } from 'src/shared/services/prisma.service';
 import { UserNotFoundException } from 'src/shared/constants/file-error.constant';
+import { validateAnswerLimitAndDuplicate } from 'src/shared/utils/answer.validation';
 @Injectable()
 export class AnswerService {
   constructor(
@@ -15,9 +17,10 @@ export class AnswerService {
     private readonly prisma: PrismaService,
   ) {}
 
-    private async getGuardMeta(kahootId: string, questionId: string) {
+  private async getGuardMeta(kahootId: string, questionId: string) {
     const q = await this.repo.loadQuestionForGuard(questionId);
-    if (!q || q.deletedAt || q.kahootId !== kahootId) throw AnswerNotFoundException;
+    if (!q || q.deletedAt || q.kahootId !== kahootId)
+      throw AnswerNotFoundException;
     return q;
   }
 
@@ -41,20 +44,46 @@ export class AnswerService {
   }
 
   // Thêm câu trả lời
-  async createAnswer(userId: string, kahootId: string, questionId: string, data: any) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  async createAnswer(
+    userId: string,
+    kahootId: string,
+    questionId: string,
+    data: any,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
     if (!user) throw UserNotFoundException;
 
     const q = await this.getGuardMeta(kahootId, questionId);
     this.ensureOwner(userId, q.kahoot.ownerId);
     if (q.kahoot.publishedAt) throw CreateAnswerFailedException;
 
+    //  Gọi hàm validate logic nghiệp vụ
+    await validateAnswerLimitAndDuplicate(
+      this.prisma,
+      questionId,
+      data.orderIndex,
+      data.shape
+    );
+
+    //  Tạo
     return await this.repo.createAnswer(questionId, data);
   }
 
   // Cập nhật câu trả lời
-  async updateAnswer(userId: string, kahootId: string, questionId: string, id: string, data: any) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  async updateAnswer(
+    userId: string,
+    kahootId: string,
+    questionId: string,
+    id: string,
+    data: any,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
     if (!user) throw UserNotFoundException;
 
     const q = await this.getGuardMeta(kahootId, questionId);
@@ -66,8 +95,16 @@ export class AnswerService {
   }
 
   // Xoá câu trả lời
-  async deleteAnswer(userId: string, kahootId: string, questionId: string, id: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  async deleteAnswer(
+    userId: string,
+    kahootId: string,
+    questionId: string,
+    id: string,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
     if (!user) throw UserNotFoundException;
 
     const q = await this.getGuardMeta(kahootId, questionId);
