@@ -1,16 +1,15 @@
+// answer.model.ts
 import z from 'zod';
+import { AnswerShape } from '@prisma/client';
 
 export const AnswerSchema = z.object({
   id: z.string(),
   questionId: z.string(),
   text: z.string().min(1),
   isCorrect: z.boolean().default(false),
-  shape: z.string().optional(),     // FE hiển thị
-  colorHex: z.string().optional(),  // FE hiển thị
+  shape: z.nativeEnum(AnswerShape).nullable().optional(),
+  colorHex: z.string().nullable().optional(),
   orderIndex: z.number().int().min(0),
-  // createdAt/updatedAt nếu bạn có map từ DB thì thêm:
-  // createdAt: z.date(),
-  // updatedAt: z.date(),
 });
 
 export const CreateAnswerBodySchema = AnswerSchema.pick({
@@ -18,5 +17,3 @@ export const CreateAnswerBodySchema = AnswerSchema.pick({
 });
 
 export const UpdateAnswerBodySchema = CreateAnswerBodySchema.partial();
-
-export type AnswerType = z.infer<typeof AnswerSchema>;
