@@ -145,7 +145,11 @@ export class KahootBankService {
           );
         }
       }
-      return this.repo.updateKahoot(id, { publishedAt: new Date() });
+      return this.repo.updateKahoot(id, {
+        visibility: 'public',
+        publishedAt: new Date(),
+        updatedAt: new Date(),
+      });
     } catch (error) {
       if (isUniqueConstraintPrismaError(error)) {
         throw new BadRequestException('Kahoot not found');
@@ -158,7 +162,11 @@ export class KahootBankService {
     try {
       const item = await this.getKahootDetail(userId, id);
       if (item.ownerId !== userId) throw new ForbiddenException('Forbidden');
-      return this.repo.updateKahoot(id, { publishedAt: null });
+      return this.repo.updateKahoot(id, {
+        visibility: 'private', // << thêm
+        publishedAt: null,
+        updatedAt: new Date(),
+      });
     } catch (error) {
       if (isUniqueConstraintPrismaError(error)) {
         throw new BadRequestException('Kahoot not found');
