@@ -1,5 +1,5 @@
 import z from 'zod';
-
+const ObjectIdRx = /^[0-9a-f]{24}$/i;
 export const QuestionSchema = z.object({
   id: z.string(),
   kahootId: z.string(),
@@ -22,6 +22,9 @@ export const CreateQuestionBodySchema = QuestionSchema.pick({
   timeLimit: true,
   pointsMultiplier: true,
   isMultipleSelect: true,
+}).extend({
+  imageFileId: z.string().regex(ObjectIdRx).optional(),
+  videoFileId: z.string().regex(ObjectIdRx).optional(),
 });
 
 export const UpdateQuestionBodySchema = CreateQuestionBodySchema.partial();

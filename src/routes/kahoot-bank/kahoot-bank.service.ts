@@ -11,6 +11,7 @@ import { AnswerRepository } from '../answer/answer.repo';
 import {
   InvalidImportFileException,
   KahootNotFoundException,
+  MusicThemeNotFoundException
 } from './kahoot-bank.error';
 import { isUniqueConstraintPrismaError } from 'src/shared/helper';
 
@@ -74,6 +75,9 @@ export class KahootBankService {
   // Tạo kahoot mới
   async createKahoot(ownerId: string, data: any) {
     try {
+      if (data?.musicTheme !== undefined) {
+      data.musicTheme = await this.resolveThemeMusicOrKeep(ownerId, data.musicTheme);
+    }
       return await this.repo.createKahoot({ ownerId, ...data });
     } catch (error) {
       throw new BadRequestException(error.message);
@@ -81,31 +85,26 @@ export class KahootBankService {
   }
 
   // Cập nhật kahoot
-  async updateKahoot(userId: string, id: string, data: any) {
-    try {
-      const item = await this.getKahootDetail(userId, id);
+async updateKahoot(userId: string, id: string, data: any) {
+  try {
+    const item = await this.getKahootDetail(userId, id);
+    if (item.ownerId !== userId) throw new ForbiddenException('Forbidden');
 
-      if (item.ownerId !== userId) {
-        throw new ForbiddenException('Forbidden');
-      }
-      const isPublished = !!item.publishedAt;
-      if (isPublished) {
-        const allowed = (({ title, description, coverImage }) => ({
-          title,
-          description,
-          coverImage,
-        }))(data);
-        return this.repo.updateKahoot(id, allowed);
-      }
-      return this.repo.updateKahoot(id, data);
-    } catch (error) {
-      if (isUniqueConstraintPrismaError(error)) {
-        throw new BadRequestException('Kahoot not found');
-      }
-      throw error;
+    const isPublished = !!item.publishedAt;
+    if (isPublished) {
+      const allowed = (({ title, description, coverImage }) => ({ title, description, coverImage }))(data);
+      return this.repo.updateKahoot(id, allowed);
     }
-  }
 
+    if (data?.musicTheme !== undefined) {
+      data.musicTheme = await this.resolveThemeMusicOrKeep(userId, data.musicTheme);
+    }
+    return this.repo.updateKahoot(id, data);
+  } catch (error) {
+    if (isUniqueConstraintPrismaError(error)) throw new BadRequestException('Kahoot not found');
+    throw error;
+  }
+}
   // Xoá kahoot
   async removeKahoot(userId: string, id: string) {
     try {
@@ -403,6 +402,13 @@ export class KahootBankService {
         ]) {
           if (payload[k] !== undefined) toUpdate[k] = payload[k];
         }
+        // THÊM ĐOẠN NÀY — kiểm tra và resolve nhạc nền nếu có
+        if (payload.musicTheme !== undefined) {
+          toUpdate.musicTheme = await this.resolveThemeMusicOrKeep(
+            userId,
+            payload.musicTheme,
+          );
+        }
         if (Object.keys(toUpdate).length) {
           await tx.kahoot.update({ where: { id }, data: toUpdate });
         }
@@ -501,14 +507,14 @@ export class KahootBankService {
   // IMPORT: Tạo mới kahoot hoàn toàn từ file JSON
   async importKahootCreate(userId: string, file?: Express.Multer.File) {
     if (!file?.buffer?.length) throw InvalidImportFileException;
-
+    // Parse JSON
     let payload: any;
     try {
       payload = JSON.parse(file.buffer.toString('utf8'));
     } catch {
       throw new BadRequestException('Import file must be valid JSON');
     }
-
+    // Validate sơ bộ
     if (!Array.isArray(payload?.questions) || payload.questions.length === 0) {
       throw new BadRequestException(
         'Import JSON must contain "questions" (non-empty array)',
@@ -517,19 +523,35 @@ export class KahootBankService {
 
     try {
       const result = await this.prisma.$transaction(async (tx) => {
-        //  Tạo kahoot mới (bỏ qua id cũ nếu có)
-        const created = await tx.kahoot.create({
-          data: {
-            ownerId: userId,
-            title: payload.title ?? 'Untitled',
-            description: payload.description ?? '',
-            visibility: payload.visibility ?? 'private',
-            coverImage: payload.coverImage ?? null,
-            theme: payload.theme ?? null,
-            musicTheme: payload.musicTheme ?? null,
-            isTeamModeOk: !!payload.isTeamModeOk,
-          },
-        });
+      // 1) Tạo kahoot mới (bỏ qua id cũ nếu có)
+      const created = await tx.kahoot.create({
+        data: {
+          ownerId: userId,
+          title: payload.title ?? 'Untitled',
+          description: payload.description ?? null,
+          visibility: payload.visibility ?? 'private',
+          coverImage: payload.coverImage ?? null,
+          theme: payload.theme ?? null,
+          musicTheme:
+            payload.musicTheme !== undefined
+              ? await this.resolveThemeMusicOrKeep(userId, payload.musicTheme)
+              : null,
+          isTeamModeOk: payload.isTeamModeOk ?? true,
+        },
+        select: {
+          id: true,
+          ownerId: true,
+          title: true,
+          description: true,
+          visibility: true,
+          coverImage: true,
+          theme: true,
+          musicTheme: true,
+          isTeamModeOk: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
 
         //  Gắn tags nếu có
         if (Array.isArray(payload.tags) && payload.tags.length) {
@@ -596,5 +618,50 @@ export class KahootBankService {
     } catch (error) {
       throw error;
     }
+  }
+
+  private async resolveThemeMusicOrKeep(
+    ownerId: string,
+    musicTheme?: string | null,
+  ): Promise<string | null | undefined> {
+    if (musicTheme == null || musicTheme === '') return musicTheme;
+
+    // 1) slug hoặc URL → giữ nguyên
+    const isObjectId = /^[0-9a-f]{24}$/i.test(musicTheme);
+    if (!isObjectId) return musicTheme;
+
+    // 2) fileId → tìm THEME_MUSIC
+    // Bước 1: ưu tiên file của chính owner (giữ tương thích cũ)
+    let file = await this.prisma.file.findFirst({
+      where: {
+        id: musicTheme,
+        ownerId,
+        mime: { startsWith: 'audio/' },
+        metaJson: { contains: '"usage":"THEME_MUSIC"' },
+        // (tuỳ chọn) đảm bảo đã sẵn sàng:
+        // metaJson: { contains: '"status":"READY"' },
+      },
+      select: { url: true, ownerId: true },
+    });
+
+    // Bước 2: fallback công khai – chấp nhận file của user khác
+    if (!file) {
+      file = await this.prisma.file.findFirst({
+        where: {
+          id: musicTheme,
+          mime: { startsWith: 'audio/' },
+          metaJson: { contains: '"usage":"THEME_MUSIC"' },
+          // (tuỳ chọn) 'READY'
+          // metaJson: { contains: '"status":"READY"' },
+        },
+        select: { url: true, ownerId: true },
+      });
+    }
+
+    if (!file) {
+      throw MusicThemeNotFoundException; // hoặc BadRequestException với message cũ
+    }
+    // Trả URL để lưu vào kahoot.musicTheme
+    return file.url;
   }
 }

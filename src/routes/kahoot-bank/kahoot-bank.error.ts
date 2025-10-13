@@ -66,3 +66,9 @@ export const AnswerInvalidException = (qIndex: number, reason: string) =>
     message: `Đáp án không hợp lệ[Q${qIndex}]: ${reason}`,
     path: 'answers',
   })
+
+  // MusicTheme: file id không tồn tại hoặc không phải THEME_MUSIC
+export const MusicThemeNotFoundException = new BadRequestException({
+  message: 'Thông báo lỗi! Nhạc nền (musicTheme) không tồn tại hoặc không hợp lệ',
+  path: 'musicTheme',
+});
