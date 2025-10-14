@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ChallengeRepository } from './challenge.repo';
 import {
   CreateChallengeBodyDTO,
@@ -34,18 +39,21 @@ function seededShuffle<T>(items: T[], seed: string): T[] {
 @Injectable()
 export class ChallengeService {
   constructor(private readonly repo: ChallengeRepository) {}
-   async getNextQuestionForAttempt(attemptId: string, userId: string | null) {
+  async getNextQuestionForAttempt(attemptId: string, userId: string | null) {
     const attempt = await this.repo.findAttemptWithChallengeAndQA(attemptId);
     if (!attempt) throw new NotFoundException('Attempt not found');
 
-    // Quyền: owner hoặc chính người làm (nếu kahoot private)
+    // Quyền truy cập
     const isOwner =
       userId &&
       (attempt.challenge.kahoot.ownerId === userId ||
         attempt.challenge.creatorId === userId);
     const isSelf = userId && attempt.userId === userId;
 
-    if (attempt.challenge.kahoot.visibility === 'private' && !(isOwner || isSelf)) {
+    if (
+      attempt.challenge.kahoot.visibility === 'private' &&
+      !(isOwner || isSelf)
+    ) {
       throw new ForbiddenException('You are not allowed to view this attempt');
     }
 
@@ -62,8 +70,8 @@ export class ChallengeService {
       throw new BadRequestException('Challenge is already due');
     }
 
-    // Thứ tự câu hỏi
-    let questions = attempt.challenge.kahoot.questions.map(q => ({
+    // Danh sách câu hỏi
+    let questions = attempt.challenge.kahoot.questions.map((q) => ({
       id: q.id,
       text: q.text,
       imageUrl: q.imageUrl,
@@ -72,7 +80,7 @@ export class ChallengeService {
       timeLimit: q.timeLimit,
       pointsMultiplier: q.pointsMultiplier,
       isMultipleSelect: q.isMultipleSelect,
-      answers: q.answers.map(a => ({
+      answers: q.answers.map((a) => ({
         id: a.id,
         text: a.text,
         shape: a.shape,
@@ -81,6 +89,7 @@ export class ChallengeService {
       })),
     }));
 
+    // Random hoá thứ tự nếu cần
     if (ch.questionOrderRandom) {
       questions = seededShuffle(questions, attemptId).map((q, i) => ({
         ...q,
@@ -90,40 +99,57 @@ export class ChallengeService {
       questions.sort((a, b) => a.orderIndex - b.orderIndex);
     }
 
-    // Lấy các question đã trả lời
+    // Lấy danh sách câu đã trả lời
     const answeredSet = new Set(
-      (await this.repo.listAnsweredQuestionIds(attemptId)).map(x => x.questionId),
+      (await this.repo.listAnsweredQuestionIds(attemptId)).map(
+        (x) => x.questionId,
+      ),
     );
 
     const answeredCount = answeredSet.size;
     const total = questions.length;
 
     // Tìm câu đầu tiên chưa trả lời
-    const next = questions.find(q => !answeredSet.has(q.id));
+    const next = questions.find((q) => !answeredSet.has(q.id));
 
+    // Nếu đã hết câu hỏi
     if (!next) {
       return {
         done: true,
         canSubmit: true,
-        progress: { answered: answeredCount, total },
+        progress: {
+          current: total,
+          total,
+          index: total - 1,
+          display: `${total}/${total}`,
+        },
         message: 'All questions answered. You can submit now.',
       };
     }
 
-    // Random answers nếu cần, ổn định theo attemptId:questionId
+    // Random thứ tự đáp án nếu có bật
     let answers = next.answers.slice();
     if (ch.answerOrderRandom) {
-      answers = seededShuffle(answers, `${attemptId}:${next.id}`).map((a, i) => ({
-        ...a,
-        orderIndex: i,
-      }));
+      answers = seededShuffle(answers, `${attemptId}:${next.id}`).map(
+        (a, i) => ({
+          ...a,
+          orderIndex: i,
+        }),
+      );
     } else {
       answers.sort((a, b) => a.orderIndex - b.orderIndex);
     }
 
+    // === RETURN JSON mới ===
+    const current = answeredCount + 1; // 1-based index
     return {
       done: false,
-      progress: { index: answeredCount + 1, total }, // ví dụ câu số 2/10
+      progress: {
+        index: answeredCount, // 0-based (nếu cần)
+        current, // 1-based (frontend hiển thị)
+        total,
+        display: `${current}/${total}`,
+      },
       question: {
         id: next.id,
         text: next.text,
@@ -132,48 +158,60 @@ export class ChallengeService {
         timeLimit: next.timeLimit,
         pointsMultiplier: next.pointsMultiplier,
         isMultipleSelect: next.isMultipleSelect,
-        answers, // không có isCorrect
+        answers,
       },
     };
   }
 
-// A) LIST challenges
-async listChallenges(query: any, userId: string | null) {
-  const page  = Math.max(1, Number(query.page)  || 1);
-  const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
-  const sort  = String(query.sort || 'createdAt.desc');
+  // A) LIST challenges
+  async listChallenges(query: any, userId: string | null) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const sort = String(query.sort || 'createdAt.desc');
 
-  const result = await this.repo.listChallenges({ ...query, page, limit, sort }, userId);
-  return {
-    page, limit,
-    total: result.total,
-    items: result.items,
-  };
-}
+    const result = await this.repo.listChallenges(
+      { ...query, page, limit, sort },
+      userId,
+    );
+    return {
+      page,
+      limit,
+      total: result.total,
+      items: result.items,
+    };
+  }
 
-// B) LIST attempts (owner)
-async listAttempts(challengeId: string, query: any, userId: string) {
-  const page  = Math.max(1, Number(query.page)  || 1);
-  const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
-  const sort  = String(query.sort || 'startedAt.desc');
+  // B) LIST attempts (owner)
+  async listAttempts(challengeId: string, query: any, userId: string) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const sort = String(query.sort || 'startedAt.desc');
 
-  await this.repo.assertOwnerOrThrow(challengeId, userId);
-  return await this.repo.listAttempts(challengeId, { page, limit, sort });
-}
+    await this.repo.assertOwnerOrThrow(challengeId, userId);
+    return await this.repo.listAttempts(challengeId, { page, limit, sort });
+  }
 
-// C) GET attempt detail (owner hoặc chính chủ attempt)
-async getAttemptDetail(attemptId: string, userId: string | null) {
-  return await this.repo.getAttemptDetail(attemptId, userId);
-}
+  // C) GET attempt detail (owner hoặc chính chủ attempt)
+  async getAttemptDetail(attemptId: string, userId: string | null) {
+    return await this.repo.getAttemptDetail(attemptId, userId);
+  }
 
-// D) LIST responses (owner hoặc chính chủ attempt)
-async listAttemptResponses(attemptId: string, query: any, userId: string | null) {
-  const page  = Math.max(1, Number(query.page)  || 1);
-  const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
-  const sort  = String(query.sort || 'createdAt.asc');
+  // D) LIST responses (owner hoặc chính chủ attempt)
+  async listAttemptResponses(
+    attemptId: string,
+    query: any,
+    userId: string | null,
+  ) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const sort = String(query.sort || 'createdAt.asc');
 
-  return await this.repo.listAttemptResponses(attemptId, { page, limit, sort }, userId);
-}
+    return await this.repo.listAttemptResponses(
+      attemptId,
+      { page, limit, sort },
+      userId,
+    );
+  }
 
   async openChallenge(id: string, userId: string) {
     await this.repo.assertOwnerOrThrow(id, userId);
@@ -191,37 +229,51 @@ async listAttemptResponses(attemptId: string, query: any, userId: string | null)
    *  CREATE
    *  =========================== */
   async createChallenge(body: CreateChallengeBodyDTO, userId: string) {
-  // 1) user phải tồn tại
-  const user = await this.repo['prisma'].user.findUnique({ where: { id: userId } });
-  if (!user) {
-    // chặn sớm: token hợp lệ nhưng user không tồn tại trong DB
-    throw new ForbiddenException({ message: 'User không tồn tại', path: 'user' });
+    // 1) user phải tồn tại
+    const user = await this.repo['prisma'].user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      // chặn sớm: token hợp lệ nhưng user không tồn tại trong DB
+      throw new ForbiddenException({
+        message: 'User không tồn tại',
+        path: 'user',
+      });
+    }
+
+    // 2) kahoot thuộc owner
+    await this.repo.assertKahootOwnerOrThrow(body.kahoot_id, userId); // :contentReference[oaicite:4]{index=4}
+
+    // 3) tạo challenge
+    const created = await this.repo.createChallenge({
+      kahoot: { connect: { id: body.kahoot_id } },
+      creator: { connect: { id: userId } },
+      title: body.title,
+      introText: body.intro_text,
+      startAt: body.start_at ? new Date(body.start_at) : null,
+      dueAt: body.due_at ? new Date(body.due_at) : null,
+      status: body.status ?? 'open',
+      answerOrderRandom: body.answer_order_random,
+      questionOrderRandom: body.question_order_random,
+      streaksEnabled: body.streaks_enabled,
+    });
+
+    return {
+      id: created.id,
+      title: created.title,
+      status: created.status,
+      createdAt: created.createdAt,
+    };
   }
-
-  // 2) kahoot thuộc owner
-  await this.repo.assertKahootOwnerOrThrow(body.kahoot_id, userId);  // :contentReference[oaicite:4]{index=4}
-
-  // 3) tạo challenge
-  const created = await this.repo.createChallenge({
-    kahoot:  { connect: { id: body.kahoot_id } },
-    creator: { connect: { id: userId } },
-    title: body.title,
-    introText: body.intro_text,
-    startAt: body.start_at ? new Date(body.start_at) : null,
-    dueAt:   body.due_at   ? new Date(body.due_at)   : null,
-    status:  body.status ?? 'open',
-    answerOrderRandom:   body.answer_order_random,
-    questionOrderRandom: body.question_order_random,
-    streaksEnabled:      body.streaks_enabled,
-  });
-
-  return { id: created.id, title: created.title, status: created.status, createdAt: created.createdAt };
-}
 
   /** ===========================
    *  UPDATE
    *  =========================== */
-  async updateChallenge(id: string, body: UpdateChallengeBodyDTO, userId: string): Promise<any> {
+  async updateChallenge(
+    id: string,
+    body: UpdateChallengeBodyDTO,
+    userId: string,
+  ): Promise<any> {
     try {
       await this.repo.assertOwnerOrThrow(id, userId);
 
@@ -259,7 +311,11 @@ async listAttemptResponses(attemptId: string, query: any, userId: string | null)
   ): Promise<any> {
     try {
       const { nickname } = body;
-      const attempt = await this.repo.startAttempt(challengeId, userId ?? null, nickname);
+      const attempt = await this.repo.startAttempt(
+        challengeId,
+        userId ?? null,
+        nickname,
+      );
       return {
         message: 'Bắt đầu challenge thành công',
         attempt,
@@ -320,7 +376,10 @@ async listAttemptResponses(attemptId: string, query: any, userId: string | null)
   /** ===========================
    *  GET CHALLENGE DETAIL
    *  =========================== */
-  async getChallengeDetail(challengeId: string, userId?: string | null): Promise<any> {
+  async getChallengeDetail(
+    challengeId: string,
+    userId?: string | null,
+  ): Promise<any> {
     try {
       await this.repo.checkViewableOrOwnerOrThrow(challengeId, userId);
 
