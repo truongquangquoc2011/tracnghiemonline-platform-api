@@ -5,6 +5,9 @@ import { PrismaService } from 'src/shared/services/prisma.service';
 export class LobbyRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /* ---------------------------------- UTILS ---------------------------------- */
+
+  /** Generate random 6-digit PIN (and ensure it's unique). */
   private async generateUniquePin(): Promise<string> {
     for (let i = 0; i < 5; i++) {
       const pin = Math.floor(100000 + Math.random() * 900000).toString();
@@ -16,9 +19,11 @@ export class LobbyRepository {
     return Math.floor(1000000 + Math.random() * 9000000).toString();
   }
 
+  /* -------------------------------- CREATE / READ -------------------------------- */
+
   async createLobby(
     kahootId: string,
-    userId: string, // 👈 hostId đổi thành userId
+    hostId: string,
     data: {
       mode: 'classic' | 'team';
       answerOrderRandom: boolean;
@@ -28,14 +33,13 @@ export class LobbyRepository {
       settingsJson?: string;
     },
   ) {
-    if (!userId) {
-      throw new Error('Cannot create lobby: userId is missing.');
-    }
+    if (!hostId) throw new Error('Host ID missing.');
     const pinCode = await this.generateUniquePin();
+
     return this.prisma.lobbySession.create({
       data: {
-        kahoot: { connect: { id: kahootId } },
-        host: { connect: { id: userId } },
+        kahootId,
+        hostId,
         pinCode,
         mode: data.mode,
         status: 'waiting',
@@ -56,6 +60,15 @@ export class LobbyRepository {
     return this.prisma.lobbySession.findUnique({ where: { pinCode } });
   }
 
+  async findByHost(hostId: string) {
+    return this.prisma.lobbySession.findMany({
+      where: { hostId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /* -------------------------------- PLAYER MANAGEMENT -------------------------------- */
+
   async addPlayer(
     sessionId: string,
     payload: {
@@ -65,9 +78,14 @@ export class LobbyRepository {
     },
   ) {
     const same = await this.prisma.lobbyPlayer.findFirst({
-      where: { sessionId, nickname: payload.nickname, leftAt: null },
+      where: {
+        sessionId,
+        nickname: payload.nickname,
+        leftAt: null,
+        isKicked: false,
+      },
     });
-    if (same) throw new Error('Nickname already taken in this lobby');
+    if (same) throw new Error('Nickname already taken in this lobby.');
 
     return this.prisma.lobbyPlayer.create({
       data: {
@@ -97,28 +115,41 @@ export class LobbyRepository {
     });
   }
 
+  /* -------------------------------- STATUS / CONTROL -------------------------------- */
+
   async setStatus(sessionId: string, status: 'waiting' | 'running' | 'ended') {
     const data: any = { status };
     if (status === 'running') data.startedAt = new Date();
     if (status === 'ended') data.endedAt = new Date();
-    return this.prisma.lobbySession.update({ where: { id: sessionId }, data });
+
+    return this.prisma.lobbySession.update({
+      where: { id: sessionId },
+      data,
+    });
   }
 
-  getQuestionByIndex(kahootId: string, index: number) {
-    return this.prisma.kahootQuestion.findFirst({
+  /* -------------------------------- QUESTIONS -------------------------------- */
+
+  async getQuestionByIndex(kahootId: string, index: number) {
+    const question = await this.prisma.kahootQuestion.findFirst({
       where: { kahootId },
       orderBy: { orderIndex: 'asc' },
       skip: index,
       take: 1,
     });
+    return question;
   }
 
   getQuestionById(questionId: string) {
-    return this.prisma.kahootQuestion.findUnique({ where: { id: questionId } });
+    return this.prisma.kahootQuestion.findUnique({
+      where: { id: questionId },
+    });
   }
 
   getAnswer(answerId: string) {
-    return this.prisma.kahootAnswer.findUnique({ where: { id: answerId } });
+    return this.prisma.kahootAnswer.findUnique({
+      where: { id: answerId },
+    });
   }
 
   getAnswersForQuestion(questionId: string) {
@@ -127,6 +158,8 @@ export class LobbyRepository {
       orderBy: { orderIndex: 'asc' },
     });
   }
+
+  /* -------------------------------- RESPONSES -------------------------------- */
 
   async upsertResponse(data: {
     sessionId: string;
@@ -146,12 +179,14 @@ export class LobbyRepository {
         questionId: data.questionId,
       },
     });
+
     if (existed) {
       return this.prisma.lobbyPlayerResponse.update({
         where: { id: existed.id },
         data,
       });
     }
+
     return this.prisma.lobbyPlayerResponse.create({ data });
   }
 
@@ -160,25 +195,36 @@ export class LobbyRepository {
       where: { id: playerId },
     });
     if (!player) return null;
+
     const newStreak = isCorrect ? player.streakCurrent + 1 : 0;
     const newStreakMax = Math.max(player.streakMax || 0, newStreak);
-    const newFinal = (player.finalScore || 0) + (points || 0);
+    const newScore = (player.finalScore || 0) + (points || 0);
+
     return this.prisma.lobbyPlayer.update({
       where: { id: playerId },
       data: {
         streakCurrent: newStreak,
         streakMax: newStreakMax,
-        finalScore: newFinal,
+        finalScore: newScore,
       },
     });
   }
 
+  /* -------------------------------- STATE / SNAPSHOTS -------------------------------- */
+
   async getLobbyStateByPin(pinCode: string) {
     const session = await this.findByPin(pinCode);
     if (!session) return null;
+
     const players = await this.prisma.lobbyPlayer.findMany({
-      where: { sessionId: session.id, leftAt: null, isKicked: false },
+      where: {
+        sessionId: session.id,
+        leftAt: null,
+        isKicked: false,
+      },
+      orderBy: { joinedAt: 'asc' },
     });
+
     return { session, players };
   }
 
@@ -186,6 +232,7 @@ export class LobbyRepository {
     const players = await this.prisma.lobbyPlayer.findMany({
       where: { sessionId },
     });
+
     return players
       .map((p) => ({
         playerId: p.id,
@@ -194,5 +241,30 @@ export class LobbyRepository {
         streakMax: p.streakMax || 0,
       }))
       .sort((a, b) => b.score - a.score);
+  }
+
+  /* -------------------------------- HOST DASHBOARD -------------------------------- */
+
+  async getHostDashboard(hostId: string) {
+    const sessions = await this.prisma.lobbySession.findMany({
+      where: { hostId },
+      include: {
+        players: {
+          where: { leftAt: null, isKicked: false },
+          select: { id: true, nickname: true, finalScore: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return sessions.map((s) => ({
+      sessionId: s.id,
+      kahootId: s.kahootId,
+      pinCode: s.pinCode,
+      status: s.status,
+      playerCount: s.players.length,
+      players: s.players,
+      createdAt: s.createdAt,
+    }));
   }
 }

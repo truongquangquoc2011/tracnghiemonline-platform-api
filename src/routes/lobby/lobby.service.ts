@@ -7,7 +7,6 @@ import {
 import { LobbyRepository } from './lobby.repo';
 import { computePoints } from './utils/score.util';
 
-
 @Injectable()
 export class LobbyService {
   constructor(private readonly repo: LobbyRepository) {}
@@ -25,10 +24,10 @@ export class LobbyService {
     },
   ) {
     if (!userId) {
-    throw new ForbiddenException(
-      'Missing userId — bạn cần đăng nhập trước khi tạo lobby.',
-    );
-  }
+      throw new ForbiddenException(
+        'Missing userId — bạn cần đăng nhập trước khi tạo lobby.',
+      );
+    }
     return this.repo.createLobby(kahootId, userId, data);
   }
 
@@ -145,5 +144,12 @@ export class LobbyService {
 
   async kickPlayer(sessionId: string, playerId: string) {
     return this.repo.kickPlayer(sessionId, playerId);
+  }
+  getSessionByPin(pin: string) {
+    return this.repo.findByPin(pin);
+  }
+
+  getLobbyStateByPin(pin: string) {
+    return this.repo.getLobbyStateByPin(pin);
   }
 }
