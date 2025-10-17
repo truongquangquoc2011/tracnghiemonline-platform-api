@@ -113,38 +113,31 @@ export class LobbyGateway {
     }
   }
 
+  // 🔧 handleDisconnect: bỏ gọi leaveLobby nếu socket đã bị "kicked"
   async handleDisconnect(client: Socket) {
-    const st = this.clientState.get(client.id);
-    if (!st) return;
-
-    try {
-      // Nếu host rời → coi như phòng bị đóng, phát thông báo cho tất cả client trong phòng
-      if (st.isHost) {
-        this.logger.log(`Host disconnected, closing lobby ${st.pinCode}`);
-        // Dọn timer câu hỏi (nếu có)
-        this.clearQuestionTimer(st.pinCode);
-        this.questionState.delete(st.pinCode);
-
-        // (tuỳ bạn) Có thể cập nhật DB trạng thái session tại đây nếu muốn đóng session.
-
-        // Thông báo tới tất cả client trong phòng
-        this.server.to(st.pinCode).emit(LobbyEvents.HOST_LEAVE, {
-          pinCode: st.pinCode,
-        });
-      } else {
-        // Player rời bình thường
+  const st = this.clientState.get(client.id);
+  if (!st) return;
+  try {
+    if (st.isHost) {
+      // ⚠️ KHÔNG đóng phòng khi host mất kết nối socket (chuyển trang, refresh...)
+      // -> KHÔNG clear timer/questionState, KHÔNG emit HOST_LEAVE ở đây.
+      this.logger.log(`Host socket disconnected (room still open) ${st.pinCode}`);
+    } else {
+      // Player rời bình thường (trừ khi đã bị kick)
+      if (!client.data.kicked) {
         await this.service.leaveLobby(st.sessionId, st.playerId);
         this.server
           .to(st.pinCode)
           .emit(LobbyEvents.PLAYER_LEFT, { playerId: st.playerId });
         this.emitParticipantsSnapshot(st.pinCode);
       }
-
-      client.leave(st.pinCode);
-    } finally {
-      this.clientState.delete(client.id);
     }
+    client.leave(st.pinCode);
+  } finally {
+    this.clientState.delete(client.id);
   }
+}
+
 
   // ---------------- common utils ----------------
   private emitError(client: Socket, message: string) {
@@ -563,6 +556,7 @@ export class LobbyGateway {
     }
   }
 
+  // 🔧 Thay toàn bộ hàm onKick
   @SubscribeMessage(LobbyEvents.KICK_PLAYER)
   async onKick(
     @MessageBody() body: KickPlayerPayload,
@@ -579,26 +573,52 @@ export class LobbyGateway {
         throw new Error('Only host can kick players');
       }
 
+      // 1) Cập nhật DB (xoá player khỏi phòng)
       await this.service.kickPlayer(st.sessionId, body.playerId);
 
-      // Tìm socket của player bị kick
-      for (const [cid, cst] of this.clientState) {
-        if (cst.playerId === body.playerId) {
-          const target = this.server.sockets.sockets.get(cid);
-          // Ping riêng tới người bị kick
-          target?.emit(LobbyEvents.PLAYER_KICKED, { playerId: body.playerId });
-          target?.leave(cst.pinCode);
-          target?.disconnect(true);
-          this.clientState.delete(cid);
-          break;
+      // 2) Tìm tất cả socket của player này (mở nhiều tab)
+      const targetSocketIds: string[] = [];
+      for (const [cid, cst] of this.clientState.entries()) {
+        if (
+          cst.pinCode === st.pinCode &&
+          cst.playerId === body.playerId &&
+          !cst.isHost
+        ) {
+          targetSocketIds.push(cid);
         }
       }
 
-      // Broadcast cho cả phòng để FE khác update UI
+      // 3) Thông báo riêng cho từng socket bị kick + đuổi ra
+      for (const cid of targetSocketIds) {
+        const target = this.server.sockets.sockets.get(cid);
+        if (!target) continue;
+
+        // cắm cờ để handleDisconnect không gọi leaveLobby nữa
+        target.data.kicked = true;
+
+        // Thông báo riêng: có thêm self: true để FE biết chắc
+        target.emit(LobbyEvents.PLAYER_KICKED, {
+          playerId: body.playerId,
+          self: true,
+        });
+
+        // rời room + ngắt kết nối
+        const tgtState = this.clientState.get(cid);
+        if (tgtState) {
+          target.leave(tgtState.pinCode);
+        }
+        target.disconnect(true);
+
+        // dọn state phía server
+        this.clientState.delete(cid);
+      }
+
+      // 4) Broadcast cho toàn phòng để cập nhật UI người còn lại
       this.server
         .to(st.pinCode)
         .emit(LobbyEvents.PLAYER_KICKED, { playerId: body.playerId });
 
+      // 5) Gửi snapshot mới
       this.emitParticipantsSnapshot(st.pinCode);
     } catch (e: any) {
       this.emitError(client, e.message || 'Failed to kick player');
