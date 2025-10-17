@@ -15,6 +15,7 @@ export enum LobbyEvents {
   PLAYER_JOINED = 'player_joined',
   PLAYER_LEFT = 'player_left',
   PLAYER_KICKED = 'player_kicked',
+  GAME_STARTING = 'game_starting',
   GAME_STARTED = 'game_started',
   QUESTION_STARTED = 'question_started',
   ANSWER_FEEDBACK = 'answer_feedback',
@@ -48,6 +49,7 @@ export type JoinLobbyPayload = {
   nickname: string;
   teamId?: string | null;
   userId?: string | null;
+  playerId?: string | null;
 };
 
 export type SubmitAnswerPayload = {

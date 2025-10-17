@@ -1,10 +1,73 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/shared/services/prisma.service';
+export type CreatePlayerInput = {
+  sessionId: string;
+  nickname: string;
+  userId?: string | null;
+  teamId?: string | null;
+  clientKey?: string | null;
+};
 
 @Injectable()
 export class LobbyRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /* ========= Players ========= */
+
+  async findPlayerById(playerId: string) {
+    return this.prisma.lobbyPlayer.findUnique({
+      where: { id: playerId },
+    });
+  }
+  async findActivePlayerBySessionAndUser(sessionId: string, userId: string) {
+    return this.prisma.lobbyPlayer.findFirst({
+      where: {
+        sessionId,
+        userId,
+        isKicked: false,
+        leftAt: null,
+      },
+      orderBy: { joinedAt: 'desc' },
+    });
+  }
+  async findActivePlayerBySessionAndClientKey(
+    sessionId: string,
+    clientKey: string,
+  ) {
+    return this.prisma.lobbyPlayer.findFirst({
+      where: {
+        sessionId,
+        clientKey,
+        isKicked: false,
+        leftAt: null,
+      },
+      orderBy: { joinedAt: 'desc' },
+    });
+  }
+  async createPlayer(input: CreatePlayerInput) {
+    return this.prisma.lobbyPlayer.create({
+      data: {
+        sessionId: input.sessionId,
+        nickname: input.nickname,
+        userId: input.userId ?? null,
+        teamId: input.teamId ?? null,
+        clientKey: input.clientKey ?? null,
+        isKicked: false,
+        joinedAt: new Date(),
+        leftAt: null,
+      },
+    });
+  }
+  /* ========= Optional helpers you may already have ========= */
+
+  async markPlayerLeft(sessionId: string, playerId: string) {
+    return this.prisma.lobbyPlayer.update({
+      where: { id: playerId },
+      data: { leftAt: new Date() },
+    });
+  }
+
+  
   /* ---------------------------------- UTILS ---------------------------------- */
 
   /** Generate random 6-digit PIN (and ensure it's unique). */
@@ -219,13 +282,17 @@ export class LobbyRepository {
     const players = await this.prisma.lobbyPlayer.findMany({
       where: {
         sessionId: session.id,
-        leftAt: null,
         isKicked: false,
+        leftAt: null,
       },
+      select: { id: true, nickname: true },
       orderBy: { joinedAt: 'asc' },
     });
 
-    return { session, players };
+    return {
+      session,
+      players,
+    };
   }
 
   async getLeaderboard(sessionId: string) {
