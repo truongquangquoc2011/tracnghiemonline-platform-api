@@ -20,7 +20,7 @@ import {
 } from './lobby.events';
 import { AnswerShape as DbAnswerShape } from '@prisma/client';
 import { TokenService } from 'src/shared/services/token.service';
-import { JwtType } from 'src/shared/@types/jwt.type'; // bạn đã có enum này trong project
+import { JwtType } from 'src/shared/@types/jwt.type';
 import { Logger } from '@nestjs/common';
 
 // Giữ strict type cho FE
@@ -92,9 +92,11 @@ export class LobbyGateway {
         return;
       }
 
-      // ✅ verify bằng TokenService (giống REST)
-      const payload = await this.tokenService.verifyToken(raw, JwtType.accessToken);
-      const userId = payload?.userId; // TokenService của bạn trả {userId, email, ...}
+      const payload = await this.tokenService.verifyToken(
+        raw,
+        JwtType.accessToken,
+      );
+      const userId = payload?.userId;
       if (!userId) {
         this.logger.warn(`Invalid token payload for ${client.id}`);
         client.emit('error_message', { code: 'UNAUTHORIZED' });
@@ -114,14 +116,30 @@ export class LobbyGateway {
   async handleDisconnect(client: Socket) {
     const st = this.clientState.get(client.id);
     if (!st) return;
+
     try {
-      if (!st.isHost) {
+      // Nếu host rời → coi như phòng bị đóng, phát thông báo cho tất cả client trong phòng
+      if (st.isHost) {
+        this.logger.log(`Host disconnected, closing lobby ${st.pinCode}`);
+        // Dọn timer câu hỏi (nếu có)
+        this.clearQuestionTimer(st.pinCode);
+        this.questionState.delete(st.pinCode);
+
+        // (tuỳ bạn) Có thể cập nhật DB trạng thái session tại đây nếu muốn đóng session.
+
+        // Thông báo tới tất cả client trong phòng
+        this.server.to(st.pinCode).emit(LobbyEvents.HOST_LEAVE, {
+          pinCode: st.pinCode,
+        });
+      } else {
+        // Player rời bình thường
         await this.service.leaveLobby(st.sessionId, st.playerId);
         this.server
           .to(st.pinCode)
           .emit(LobbyEvents.PLAYER_LEFT, { playerId: st.playerId });
         this.emitParticipantsSnapshot(st.pinCode);
       }
+
       client.leave(st.pinCode);
     } finally {
       this.clientState.delete(client.id);
@@ -136,7 +154,6 @@ export class LobbyGateway {
   private emitParticipantsSnapshot(pinCode: string, target?: Socket) {
     const participants: ParticipantsSnapshot['participants'] = [];
     for (const [, st] of this.clientState) {
-      // host không được tính là participant
       if (st.pinCode === pinCode && !st.isHost) {
         participants.push({
           playerId: st.playerId,
@@ -191,7 +208,7 @@ export class LobbyGateway {
 
       const isHost = String(userId) === String(session.hostId);
 
-      // ==== HOST JOIN (không tạo player) ====
+      // ==== HOST JOIN ====
       if (isHost) {
         client.join(pinCode);
         this.clientState.set(client.id, {
@@ -202,10 +219,7 @@ export class LobbyGateway {
           isHost: true,
         });
 
-        // Báo vai trò cho FE
         client.emit('role_assigned', { role: 'host' });
-
-        // Gửi state và participants snapshot
         client.emit(
           LobbyEvents.LOBBY_STATE,
           await this.service.getLeaderboardByPin(pinCode),
@@ -242,6 +256,7 @@ export class LobbyGateway {
 
         this.emitParticipantsSnapshot(pinCode, client);
         this.emitParticipantsSnapshot(pinCode);
+
         const qs = this.questionState.get(pinCode);
         if (qs?.lastStarted)
           client.emit(LobbyEvents.QUESTION_STARTED, qs.lastStarted);
@@ -251,7 +266,7 @@ export class LobbyGateway {
       // ==== PLAYER NEW JOIN ====
       const { sessionId, player } = await this.service.joinLobbyByPin(pinCode, {
         nickname,
-        userId, // đã verify từ token
+        userId,
         teamId: teamId || null,
       });
 
@@ -312,9 +327,6 @@ export class LobbyGateway {
   ) {
     if (body?.pinCode) this.emitParticipantsSnapshot(body.pinCode, client);
   }
-
-  // 🚫 ĐÃ BỎ @SubscribeMessage('host_join')
-  // Host cũng dùng JOIN_LOBBY, quyền do server xác định từ token + room.hostId
 
   // ---------------- game flow ----------------
   @SubscribeMessage(LobbyEvents.START_GAME)
@@ -543,6 +555,9 @@ export class LobbyGateway {
 
       this.clearQuestionTimer(st.pinCode);
       this.questionState.delete(st.pinCode);
+
+      // (Tuỳ chọn) Có thể phát thêm HOST_LEAVE nếu muốn FE coi như phòng đóng hẳn:
+      // this.server.to(st.pinCode).emit(LobbyEvents.HOST_LEAVE, { pinCode: st.pinCode });
     } catch (e: any) {
       this.emitError(client, e.message || 'Failed to end game');
     }
@@ -565,6 +580,21 @@ export class LobbyGateway {
       }
 
       await this.service.kickPlayer(st.sessionId, body.playerId);
+
+      // Tìm socket của player bị kick
+      for (const [cid, cst] of this.clientState) {
+        if (cst.playerId === body.playerId) {
+          const target = this.server.sockets.sockets.get(cid);
+          // Ping riêng tới người bị kick
+          target?.emit(LobbyEvents.PLAYER_KICKED, { playerId: body.playerId });
+          target?.leave(cst.pinCode);
+          target?.disconnect(true);
+          this.clientState.delete(cid);
+          break;
+        }
+      }
+
+      // Broadcast cho cả phòng để FE khác update UI
       this.server
         .to(st.pinCode)
         .emit(LobbyEvents.PLAYER_KICKED, { playerId: body.playerId });
