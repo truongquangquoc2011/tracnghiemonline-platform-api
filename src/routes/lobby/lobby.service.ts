@@ -6,11 +6,20 @@ import {
 } from '@nestjs/common';
 import { LobbyRepository } from './lobby.repo';
 import { computePoints } from './utils/score.util';
-
-
+import { PrismaService } from 'src/shared/services/prisma.service';
+type JoinOpts = {
+  nickname: string;
+  userId?: string | null;
+  teamId?: string | null;
+  clientKey?: string | null; // từ ensureClientKey()
+  resumePlayerId?: string | null; // từ localStorage
+};
 @Injectable()
 export class LobbyService {
-  constructor(private readonly repo: LobbyRepository) {}
+  constructor(
+    private readonly repo: LobbyRepository,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async createLobby(
     kahootId: string,
@@ -25,27 +34,52 @@ export class LobbyService {
     },
   ) {
     if (!userId) {
-    throw new ForbiddenException(
-      'Missing userId — bạn cần đăng nhập trước khi tạo lobby.',
-    );
-  }
+      throw new ForbiddenException(
+        'Missing userId — bạn cần đăng nhập trước khi tạo lobby.',
+      );
+    }
     return this.repo.createLobby(kahootId, userId, data);
   }
 
-  async joinLobbyByPin(
-    pinCode: string,
-    payload: {
-      nickname: string;
-      userId?: string | null;
-      teamId?: string | null;
-    },
-  ) {
+  async joinLobbyByPin(pinCode: string, opts: JoinOpts) {
     const session = await this.repo.findByPin(pinCode);
-    if (!session) throw new NotFoundException('Lobby not found');
-    if (session.status !== 'waiting' && session.status !== 'running') {
-      throw new BadRequestException('Lobby is not joinable');
+    if (!session) throw new Error('Lobby not found');
+
+    // 1) resume theo resumePlayerId
+    if (opts.resumePlayerId) {
+      const p = await this.repo.findPlayerById(opts.resumePlayerId);
+      if (p && p.sessionId === session.id && !p.isKicked) {
+        return { sessionId: session.id, player: p };
+      }
     }
-    const player = await this.repo.addPlayer(session.id, payload);
+
+    // 2) idempotent theo userId (nếu có đăng nhập)
+    if (opts.userId) {
+      const p = await this.repo.findActivePlayerBySessionAndUser(
+        session.id,
+        opts.userId,
+      );
+      if (p) return { sessionId: session.id, player: p };
+    }
+
+    // 3) idempotent theo clientKey (khách vãng lai)
+    if (opts.clientKey) {
+      const p = await this.repo.findActivePlayerBySessionAndClientKey(
+        session.id,
+        opts.clientKey,
+      );
+      if (p) return { sessionId: session.id, player: p };
+    }
+
+    // 4) không có ai → tạo mới
+    const player = await this.repo.createPlayer({
+      sessionId: session.id,
+      nickname: opts.nickname,
+      userId: opts.userId ?? null,
+      teamId: opts.teamId ?? null,
+      clientKey: opts.clientKey ?? null,
+    });
+
     return { sessionId: session.id, player };
   }
 
@@ -145,5 +179,51 @@ export class LobbyService {
 
   async kickPlayer(sessionId: string, playerId: string) {
     return this.repo.kickPlayer(sessionId, playerId);
+  }
+  getSessionByPin(pin: string) {
+    return this.repo.findByPin(pin);
+  }
+
+  getLobbyStateByPin(pin: string) {
+    return this.repo.getLobbyStateByPin(pin);
+  }
+  /**
+   * Tìm player theo playerId nhưng phải ĐÚNG phòng (pinCode).
+   * Dùng để resume khi reload trang: nếu còn player trong phòng thì trả về; ngược lại trả null.
+   * - Không ném lỗi khi không tìm thấy player (để FE có thể tự tạo mới).
+   */
+  async findPlayerInPin(
+    pinCode: string,
+    playerId: string,
+  ): Promise<{ id: string; nickname: string; sessionId: string } | null> {
+    // 1) Tìm session theo pinCode
+    const session = await this.prisma.lobbySession.findUnique({
+      where: { pinCode }, // pinCode đang unique theo thiết kế
+      select: { id: true },
+    });
+
+    if (!session) {
+      // phòng không tồn tại -> FE có thể hiển thị "Lobby not found"
+      return null;
+    }
+
+    // 2) Tìm đúng player thuộc session này
+    const player = await this.prisma.lobbyPlayer.findFirst({
+      where: {
+        id: playerId,
+        sessionId: session.id,
+        isKicked: false,
+        // Tuỳ ý ràng buộc: nếu bạn coi "leftAt != null" là đã rời phòng
+        // và không cho resume thì bỏ comment:
+        // leftAt: null,
+      },
+      select: {
+        id: true,
+        nickname: true,
+        sessionId: true,
+      },
+    });
+
+    return player ?? null;
   }
 }

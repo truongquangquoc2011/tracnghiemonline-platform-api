@@ -460,25 +460,30 @@ model LobbyTeam {
 }
 
 model LobbyPlayer {
-  id             String   @id @default(auto()) @map("_id") @db.ObjectId
-  sessionId      String   @db.ObjectId
-  teamId         String?  @db.ObjectId
-  userId         String?  @db.ObjectId
-  nickname       String
-  isKicked       Boolean @default(false)
-  joinedAt       DateTime @default(now())
-  leftAt         DateTime?
-  finalScore     Float?
-  streakCurrent  Int @default(0)
-  streakMax      Int @default(0)
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId     String   @db.ObjectId
+  teamId        String?  @db.ObjectId
+  clientKey     String?          // giữ optional để client ẩn danh vẫn OK
+  userId        String?  @db.ObjectId
+  nickname      String
+  isKicked      Boolean  @default(false)
+  joinedAt      DateTime @default(now())
+  leftAt        DateTime?
+  finalScore    Float?
+  streakCurrent Int      @default(0)
+  streakMax     Int      @default(0)
 
   // Relations
-  session        LobbySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  team           LobbyTeam?   @relation(fields: [teamId], references: [id])
-  user           User?        @relation("UserLobbyPlayers", fields: [userId], references: [id])
-  responses      LobbyPlayerResponse[]
+  session   LobbySession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  team      LobbyTeam?         @relation(fields: [teamId], references: [id])
+  user      User?              @relation("UserLobbyPlayers", fields: [userId], references: [id])
+  responses LobbyPlayerResponse[]
 
+  // Indexes (KHÔNG unique vì field optional)
   @@index([sessionId])
+  @@index([sessionId, userId])      // hỗ trợ lookup: 1 user chỉ 1 player / session (enforce ở service)
+  @@index([sessionId, clientKey])   // hỗ trợ lookup: 1 clientKey chỉ 1 player / session (enforce ở service)
+
   @@map("lobby_players")
 }
 
