@@ -39,7 +39,7 @@ const SHAPE_MAP: Record<
 @WebSocketGateway({ cors: { origin: '*' } })
 export class LobbyGateway {
   @WebSocketServer() server: Server;
-
+  private readonly starting = new Set<string>();
   private readonly clientState = new Map<
     string,
     {
@@ -271,65 +271,91 @@ export class LobbyGateway {
       const st = this.clientState.get(client.id);
       if (!st?.isHost) throw new Error('Only host can start the game');
 
-      // 1) Báo đếm ngược 5s cho tất cả client
+      // Lấy session để biết hostId (userId thật)
+      const session = await this.service.getSessionById(st.sessionId);
+      if (!session) throw new Error('Lobby not found');
+
+      // Nếu đã bắt đầu hoặc kết thúc thì thôi
+      if (session.status !== 'waiting') {
+        throw new Error('Lobby already started or ended');
+      }
+
+      // Chống double click / đua tay
+      if (this.starting.has(st.pinCode)) {
+        // đã có countdown khác đang chạy → bỏ qua yên lặng
+        return;
+      }
+      this.starting.add(st.pinCode);
+
+      // 1) Phát đếm ngược 5s
       const COUNTDOWN_MS = 5000;
       const startAt = Date.now() + COUNTDOWN_MS;
       this.server.to(st.pinCode).emit(LobbyEvents.GAME_STARTING, { startAt });
 
-      // 2) Hết 5s mới thực sự start + bắn câu đầu
+      // 2) Hết 5s mới start thật + phát câu đầu
       setTimeout(async () => {
-        await this.service.startGame(st.sessionId, st.playerId);
+        try {
+          // 🔧 FIX CHÍNH: truyền đúng userId của host
+          await this.service.startGame(st.sessionId, session.hostId);
 
-        // phát game_started (để client chuyển trang)
-        this.server
-          .to(st.pinCode)
-          .emit(LobbyEvents.GAME_STARTED, { startedAt: Date.now() });
+          // Thông báo game đã bắt đầu (client chuyển trang)
+          this.server
+            .to(st.pinCode)
+            .emit(LobbyEvents.GAME_STARTED, { startedAt: Date.now() });
 
-        // lấy câu đầu và phát QUESTION_STARTED như cũ
-        const session = await this.service.getSessionById(st.sessionId);
-        const bundle = await this.service.getQuestionForIndex(
-          session.kahootId,
-          0,
-        );
-        if (!bundle) return;
+          // Lấy và phát câu đầu
+          const fresh = await this.service.getSessionById(st.sessionId);
+          const bundle = await this.service.getQuestionForIndex(
+            fresh.kahootId,
+            0,
+          );
+          if (!bundle) return;
 
-        const now = Date.now();
-        const expiresAt = now + (bundle.q.timeLimit ?? 20) * 1000;
+          const now = Date.now();
+          const expiresAt = now + (bundle.q.timeLimit ?? 20) * 1000;
 
-        this.clearQuestionTimer(st.pinCode);
-        this.questionState.set(st.pinCode, {
-          questionId: bundle.q.id,
-          expiresAt,
-          timeout: null,
-          counts: {},
-          lastStarted: undefined,
-        });
+          this.clearQuestionTimer(st.pinCode);
+          this.questionState.set(st.pinCode, {
+            questionId: bundle.q.id,
+            expiresAt,
+            timeout: null,
+            counts: {},
+            lastStarted: undefined,
+          });
 
-        const payload: QuestionStartedPayload = {
-          index: 0,
-          question: {
-            id: bundle.q.id,
-            text: nonNullString(bundle.q.text),
-            imageUrl: bundle.q.imageUrl ?? null,
-            videoUrl: bundle.q.videoUrl ?? null,
-            timeLimit: bundle.q.timeLimit,
-            pointsMultiplier: bundle.q.pointsMultiplier ?? null,
-          },
-          answers: bundle.answers.map((a) => ({
-            id: a.id,
-            text: nonNullString(a.text),
-            shape: SHAPE_MAP[a.shape],
-            colorHex: a.colorHex ?? null,
-            orderIndex: a.orderIndex ?? null,
-          })),
-          expiresAt,
-        };
+          const payload: QuestionStartedPayload = {
+            index: 0,
+            question: {
+              id: bundle.q.id,
+              text: nonNullString(bundle.q.text),
+              imageUrl: bundle.q.imageUrl ?? null,
+              videoUrl: bundle.q.videoUrl ?? null,
+              timeLimit: bundle.q.timeLimit,
+              pointsMultiplier: bundle.q.pointsMultiplier ?? null,
+            },
+            answers: bundle.answers.map((a) => ({
+              id: a.id,
+              text: nonNullString(a.text),
+              shape: SHAPE_MAP[a.shape],
+              colorHex: a.colorHex ?? null,
+              orderIndex: a.orderIndex ?? null,
+            })),
+            expiresAt,
+          };
 
-        const stQ = this.questionState.get(st.pinCode);
-        if (stQ) stQ.lastStarted = payload;
+          const stQ = this.questionState.get(st.pinCode);
+          if (stQ) stQ.lastStarted = payload;
 
-        this.server.to(st.pinCode).emit(LobbyEvents.QUESTION_STARTED, payload);
-        this.scheduleCloseQuestion(st.pinCode);
+          this.server
+            .to(st.pinCode)
+            .emit(LobbyEvents.QUESTION_STARTED, payload);
+          this.scheduleCloseQuestion(st.pinCode);
+        } catch (err: any) {
+          // Nếu service ném lỗi (ví dụ race ở DB), báo về client
+          this.emitError(client, err?.message || 'Failed to start game');
+        } finally {
+          this.starting.delete(st.pinCode);
+        }
       }, COUNTDOWN_MS);
     } catch (e: any) {
       this.emitError(client, e.message || 'Failed to start game');

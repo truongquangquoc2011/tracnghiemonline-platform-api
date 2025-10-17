@@ -7,7 +7,7 @@ export type CreatePlayerInput = {
   teamId?: string | null;
   clientKey?: string | null;
 };
-
+type LobbyStatus = 'waiting' | 'running' | 'ended';
 @Injectable()
 export class LobbyRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -67,7 +67,6 @@ export class LobbyRepository {
     });
   }
 
-  
   /* ---------------------------------- UTILS ---------------------------------- */
 
   /** Generate random 6-digit PIN (and ensure it's unique). */
@@ -116,7 +115,25 @@ export class LobbyRepository {
   }
 
   findById(sessionId: string) {
-    return this.prisma.lobbySession.findUnique({ where: { id: sessionId } });
+    return this.prisma.lobbySession.findUnique({
+      where: { id: sessionId },
+    });
+  }
+
+  // Cập nhật có điều kiện: chỉ chuyển sang 'running' khi hiện tại đang 'waiting'
+  async setStatusIfWaiting(
+    sessionId: string,
+    status: Exclude<LobbyStatus, 'waiting'>,
+  ): Promise<boolean> {
+    const data: any = { status };
+    if (status === 'running') data.startedAt = new Date();
+    if (status === 'ended') data.endedAt = new Date();
+
+    const res = await this.prisma.lobbySession.updateMany({
+      where: { id: sessionId, status: 'waiting' },
+      data,
+    });
+    return res.count > 0;
   }
 
   findByPin(pinCode: string) {
@@ -180,7 +197,8 @@ export class LobbyRepository {
 
   /* -------------------------------- STATUS / CONTROL -------------------------------- */
 
-  async setStatus(sessionId: string, status: 'waiting' | 'running' | 'ended') {
+  // Nếu vẫn cần hàm setStatus "tự do", giữ riêng (cẩn thận race condition)
+  async setStatus(sessionId: string, status: LobbyStatus) {
     const data: any = { status };
     if (status === 'running') data.startedAt = new Date();
     if (status === 'ended') data.endedAt = new Date();
