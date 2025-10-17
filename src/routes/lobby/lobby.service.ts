@@ -89,12 +89,24 @@ export class LobbyService {
 
   async startGame(sessionId: string, userId: string) {
     const session = await this.repo.findById(sessionId);
-    if (!session) throw new NotFoundException('Lobby not found');
-    if (session.hostId !== userId)
-      throw new ForbiddenException('Only host can start the game');
-    if (session.status !== 'waiting')
-      throw new BadRequestException('Lobby already started or ended');
-    return this.repo.setStatus(sessionId, 'running');
+    if (!session) {
+      throw new NotFoundException('Lobby không tồn tại');
+    }
+
+    if (session.hostId !== userId) {
+      throw new ForbiddenException('Chỉ host mới được phép bắt đầu');
+    }
+
+    if (session.status !== 'waiting') {
+      throw new BadRequestException('Lobby đã bắt đầu hoặc đã kết thúc');
+    }
+
+    // Dùng updateMany có điều kiện để tránh race condition:
+    const updated = await this.repo.setStatusIfWaiting(sessionId, 'running');
+    if (!updated) {
+      // Nếu 0 bản ghi bị cập nhật, coi như đã bị start nơi khác
+      throw new BadRequestException('Lobby đã bắt đầu hoặc đã kết thúc');
+    }
   }
 
   async endGame(sessionId: string, userId: string) {

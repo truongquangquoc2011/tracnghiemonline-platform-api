@@ -7,20 +7,21 @@ import {
   Param,
   HttpCode,
   HttpStatus,
-} from '@nestjs/common'
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
-import { LobbyService } from './lobby.service'
-import { CreateLobbyDTO, JoinLobbyDTO, SubmitAnswerDTO } from './dto/lobby.dto'
-import { ActiveUser } from 'src/shared/decorator/active-user.decorator'
-import { Auth } from 'src/shared/decorator/auth.decorator'
-import { AuthTypes, ConditionGuard } from 'src/shared/constants/auth.constant'
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { LobbyService } from './lobby.service';
+import { CreateLobbyDTO, JoinLobbyDTO, SubmitAnswerDTO } from './dto/lobby.dto';
+import { ActiveUser } from 'src/shared/decorator/active-user.decorator';
+import { Auth } from 'src/shared/decorator/auth.decorator';
+import { AuthTypes, ConditionGuard } from 'src/shared/constants/auth.constant';
 import {
   badRequestResponse,
   internalServerErrorResponse,
   notFoundResponse,
   unauthorizedResponse,
-} from 'src/shared/swagger/swagger.util'
-import { MESSAGES } from 'src/shared/constants/message.constant'
+} from 'src/shared/swagger/swagger.util';
+import { MESSAGES } from 'src/shared/constants/message.constant';
 
 @ApiTags('Lobby')
 @Controller('lobbies')
@@ -43,8 +44,12 @@ export class LobbyController {
     @ActiveUser('userId') userId: string,
     @Body() dto: CreateLobbyDTO,
   ) {
-    const lobby = await this.service.createLobby(kahootId, userId, dto)
-    return { sessionId: lobby.id, pinCode: lobby.pinCode, status: lobby.status }
+    const lobby = await this.service.createLobby(kahootId, userId, dto);
+    return {
+      sessionId: lobby.id,
+      pinCode: lobby.pinCode,
+      status: lobby.status,
+    };
   }
 
   /**
@@ -66,19 +71,22 @@ export class LobbyController {
       nickname: dto.nickname,
       userId: userId || null,
       teamId: dto.teamId || null,
-    })
+    });
   }
 
   /**
    * Host starts the lobby game.
    */
-  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Auth([AuthTypes.BEARER])
   @Patch(':sessionId/start')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Start a lobby game' })
   @ApiResponse({ status: 204, description: 'Game started successfully' })
-  async start(@Param('sessionId') sessionId: string, @ActiveUser('userId') userId: string) {
-    await this.service.startGame(sessionId, userId)
+  async start(
+    @Param('sessionId') sessionId: string,
+    @ActiveUser('userId') userId: string,
+  ) {
+    await this.service.startGame(sessionId, userId);
   }
 
   /**
@@ -89,8 +97,15 @@ export class LobbyController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'End a lobby game' })
   @ApiResponse({ status: 204, description: 'Game ended successfully' })
-  async end(@Param('sessionId') sessionId: string, @ActiveUser('userId') userId: string) {
-    await this.service.endGame(sessionId, userId)
+  async end(
+    @Param('sessionId') sessionId: string,
+    @ActiveUser('userId') userId: string,
+  ) {
+    // Khi guard không gắn được user, trả 401
+    if (!userId) {
+      throw new UnauthorizedException('Chưa đăng nhập');
+    }
+    await this.service.endGame(sessionId, userId);
   }
 
   /**
@@ -105,7 +120,9 @@ export class LobbyController {
     @Body() dto: SubmitAnswerDTO,
     @ActiveUser('userId') userId?: string,
   ) {
-    throw new Error('Use WebSocket SUBMIT_ANSWER in production. This REST endpoint is only a placeholder.')
+    throw new Error(
+      'Use WebSocket SUBMIT_ANSWER in production. This REST endpoint is only a placeholder.',
+    );
   }
 
   /**
@@ -115,9 +132,12 @@ export class LobbyController {
   @Get(':pinCode/leaderboard')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get the lobby leaderboard' })
-  @ApiResponse({ status: 200, description: 'Leaderboard retrieved successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Leaderboard retrieved successfully',
+  })
   @ApiResponse(notFoundResponse(MESSAGES.VALIDATION_MESSAGES.LOBBY.NOT_FOUND))
   async leaderboard(@Param('pinCode') pinCode: string) {
-    return this.service.getLeaderboardByPin(pinCode)
+    return this.service.getLeaderboardByPin(pinCode);
   }
 }

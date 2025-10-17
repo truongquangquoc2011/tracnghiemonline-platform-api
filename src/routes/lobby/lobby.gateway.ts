@@ -19,6 +19,9 @@ import {
   QuestionClosedPayload,
 } from './lobby.events';
 import { AnswerShape as DbAnswerShape } from '@prisma/client';
+import { TokenService } from 'src/shared/services/token.service';
+import { JwtType } from 'src/shared/@types/jwt.type';
+import { Logger } from '@nestjs/common';
 
 // Giữ strict type cho FE
 function nonNullString(input: string | null | undefined): string {
@@ -40,12 +43,15 @@ const SHAPE_MAP: Record<
 export class LobbyGateway {
   @WebSocketServer() server: Server;
 
+  private readonly logger = new Logger('LobbyGateway');
+
+  private readonly starting = new Set<string>();
   private readonly clientState = new Map<
     string,
     {
       pinCode: string;
       sessionId: string;
-      playerId: string;
+      playerId: string; // với host sẽ là "HOST-<sessionId>"
       nickname: string;
       isHost?: boolean;
     }
@@ -62,7 +68,76 @@ export class LobbyGateway {
     }
   >();
 
-  constructor(private readonly service: LobbyService) {}
+  constructor(
+    private readonly service: LobbyService,
+    private readonly tokenService: TokenService,
+  ) {}
+
+  // ===== WS AUTH: verify token & attach userId =====
+  async handleConnection(client: Socket) {
+    try {
+      const tokenFromAuth = (client.handshake.auth?.token as string) || '';
+      const tokenFromHeader =
+        (client.handshake.headers['authorization'] as string) || '';
+      const raw =
+        tokenFromAuth ||
+        (tokenFromHeader?.startsWith('Bearer ')
+          ? tokenFromHeader.slice('Bearer '.length)
+          : '');
+
+      if (!raw) {
+        this.logger.warn(`Missing token for ${client.id}`);
+        client.emit('error_message', { code: 'UNAUTHORIZED' });
+        client.disconnect(true);
+        return;
+      }
+
+      const payload = await this.tokenService.verifyToken(
+        raw,
+        JwtType.accessToken,
+      );
+      const userId = payload?.userId;
+      if (!userId) {
+        this.logger.warn(`Invalid token payload for ${client.id}`);
+        client.emit('error_message', { code: 'UNAUTHORIZED' });
+        client.disconnect(true);
+        return;
+      }
+
+      client.data.userId = String(userId);
+      this.logger.log(`WS connected ${client.id} userId=${client.data.userId}`);
+    } catch (e: any) {
+      this.logger.error(`Auth error ${client.id}: ${e?.message}`);
+      client.emit('error_message', { code: 'UNAUTHORIZED' });
+      client.disconnect(true);
+    }
+  }
+
+  // 🔧 handleDisconnect: bỏ gọi leaveLobby nếu socket đã bị "kicked"
+  async handleDisconnect(client: Socket) {
+  const st = this.clientState.get(client.id);
+  if (!st) return;
+  try {
+    if (st.isHost) {
+      // ⚠️ KHÔNG đóng phòng khi host mất kết nối socket (chuyển trang, refresh...)
+      // -> KHÔNG clear timer/questionState, KHÔNG emit HOST_LEAVE ở đây.
+      this.logger.log(`Host socket disconnected (room still open) ${st.pinCode}`);
+    } else {
+      // Player rời bình thường (trừ khi đã bị kick)
+      if (!client.data.kicked) {
+        await this.service.leaveLobby(st.sessionId, st.playerId);
+        this.server
+          .to(st.pinCode)
+          .emit(LobbyEvents.PLAYER_LEFT, { playerId: st.playerId });
+        this.emitParticipantsSnapshot(st.pinCode);
+      }
+    }
+    client.leave(st.pinCode);
+  } finally {
+    this.clientState.delete(client.id);
+  }
+}
+
 
   // ---------------- common utils ----------------
   private emitError(client: Socket, message: string) {
@@ -71,8 +146,7 @@ export class LobbyGateway {
 
   private emitParticipantsSnapshot(pinCode: string, target?: Socket) {
     const participants: ParticipantsSnapshot['participants'] = [];
-    for (const [_, st] of this.clientState) {
-      // host không được tính là participant
+    for (const [, st] of this.clientState) {
       if (st.pinCode === pinCode && !st.isHost) {
         participants.push({
           playerId: st.playerId,
@@ -111,36 +185,52 @@ export class LobbyGateway {
     st.timeout = t;
   }
 
-  // ---------------- lifecycle ----------------
-  async handleDisconnect(client: Socket) {
-    const st = this.clientState.get(client.id);
-    if (!st) return;
-    try {
-      if (!st.isHost) {
-        await this.service.leaveLobby(st.sessionId, st.playerId);
-        this.server
-          .to(st.pinCode)
-          .emit(LobbyEvents.PLAYER_LEFT, { playerId: st.playerId });
-        this.emitParticipantsSnapshot(st.pinCode);
-      }
-      client.leave(st.pinCode);
-    } finally {
-      this.clientState.delete(client.id);
-    }
-  }
-
-  // ---------------- player join/leave ----------------
+  // ---------------- player/host join/leave ----------------
   @SubscribeMessage(LobbyEvents.JOIN_LOBBY)
   async onJoin(
     @MessageBody() body: JoinLobbyPayload,
     @ConnectedSocket() client: Socket,
   ) {
     try {
-      const { pinCode, nickname, teamId, userId, playerId } = body;
+      const { pinCode, nickname, teamId, playerId } = body;
+      if (!pinCode) throw new Error('Invalid pin');
 
-      // 👇 Nếu có playerId -> resume không tạo mới
+      const userId = client.data.userId as string;
+      const session = await this.service.getSessionByPin(pinCode);
+      if (!session) throw new Error('Phòng không tồn tại');
+
+      const isHost = String(userId) === String(session.hostId);
+
+      // ==== HOST JOIN ====
+      if (isHost) {
+        client.join(pinCode);
+        this.clientState.set(client.id, {
+          pinCode,
+          sessionId: session.id,
+          playerId: `HOST-${session.id}`,
+          nickname: 'Host',
+          isHost: true,
+        });
+
+        client.emit('role_assigned', { role: 'host' });
+        client.emit(
+          LobbyEvents.LOBBY_STATE,
+          await this.service.getLeaderboardByPin(pinCode),
+        );
+        this.emitParticipantsSnapshot(pinCode, client);
+        this.emitParticipantsSnapshot(pinCode);
+
+        const qs = this.questionState.get(pinCode);
+        if (qs?.lastStarted)
+          client.emit(LobbyEvents.QUESTION_STARTED, qs.lastStarted);
+
+        this.logger.log(`🎮 Host joined room ${pinCode}`);
+        return;
+      }
+
+      // ==== PLAYER RESUME ====
       if (playerId) {
-        const player = await this.service.findPlayerInPin(pinCode, playerId); // tự viết repo: check playerId thuộc session pinCode
+        const player = await this.service.findPlayerInPin(pinCode, playerId);
         if (!player) throw new Error('Player not found or not in this lobby');
 
         client.join(pinCode);
@@ -151,24 +241,25 @@ export class LobbyGateway {
           nickname: player.nickname,
         });
 
+        client.emit('role_assigned', { role: 'player' });
         client.emit(
           LobbyEvents.LOBBY_STATE,
           await this.service.getLeaderboardByPin(pinCode),
         );
 
-        // Không broadcast PLAYER_JOINED vì chỉ gắn lại
         this.emitParticipantsSnapshot(pinCode, client);
         this.emitParticipantsSnapshot(pinCode);
+
         const qs = this.questionState.get(pinCode);
         if (qs?.lastStarted)
           client.emit(LobbyEvents.QUESTION_STARTED, qs.lastStarted);
         return;
       }
 
-      // ⚙️ Flow cũ: tạo player mới
+      // ==== PLAYER NEW JOIN ====
       const { sessionId, player } = await this.service.joinLobbyByPin(pinCode, {
         nickname,
-        userId: userId || null,
+        userId,
         teamId: teamId || null,
       });
 
@@ -180,6 +271,7 @@ export class LobbyGateway {
         nickname: player.nickname,
       });
 
+      client.emit('role_assigned', { role: 'player' });
       client.emit(
         LobbyEvents.LOBBY_STATE,
         await this.service.getLeaderboardByPin(pinCode),
@@ -229,38 +321,6 @@ export class LobbyGateway {
     if (body?.pinCode) this.emitParticipantsSnapshot(body.pinCode, client);
   }
 
-  // ---------------- host join ----------------
-  @SubscribeMessage('host_join')
-  async onHostJoin(
-    @MessageBody() body: { pinCode: string; hostId?: string },
-    @ConnectedSocket() client: Socket,
-  ) {
-    try {
-      const session = await this.service.getSessionByPin(body.pinCode);
-      if (!session) throw new Error('Phòng không tồn tại');
-
-      client.join(body.pinCode);
-      this.clientState.set(client.id, {
-        pinCode: body.pinCode,
-        sessionId: session.id,
-        playerId: `HOST-${session.id}`,
-        nickname: 'Host',
-        isHost: true,
-      });
-
-      client.emit('host_joined', {
-        pinCode: body.pinCode,
-        kahootId: session.kahootId,
-        status: session.status,
-      });
-
-      this.emitParticipantsSnapshot(body.pinCode, client);
-      console.log(`🎮 Host joined room ${body.pinCode}`);
-    } catch (e: any) {
-      this.emitError(client, e.message || 'Failed to join as host');
-    }
-  }
-
   // ---------------- game flow ----------------
   @SubscribeMessage(LobbyEvents.START_GAME)
   async onStart(
@@ -269,67 +329,84 @@ export class LobbyGateway {
   ) {
     try {
       const st = this.clientState.get(client.id);
-      if (!st?.isHost) throw new Error('Only host can start the game');
+      if (!st) throw new Error('Not joined');
+      const session = await this.service.getSessionById(st.sessionId);
+      if (!session) throw new Error('Lobby not found');
 
-      // 1) Báo đếm ngược 5s cho tất cả client
+      const userId = client.data.userId as string;
+      if (String(userId) !== String(session.hostId)) {
+        throw new Error('Only host can start the game');
+      }
+
+      if (session.status !== 'waiting') {
+        throw new Error('Lobby already started or ended');
+      }
+
+      if (this.starting.has(st.pinCode)) return; // chống double click
+      this.starting.add(st.pinCode);
+
       const COUNTDOWN_MS = 5000;
       const startAt = Date.now() + COUNTDOWN_MS;
       this.server.to(st.pinCode).emit(LobbyEvents.GAME_STARTING, { startAt });
 
-      // 2) Hết 5s mới thực sự start + bắn câu đầu
       setTimeout(async () => {
-        await this.service.startGame(st.sessionId, st.playerId);
+        try {
+          await this.service.startGame(st.sessionId, session.hostId);
+          this.server
+            .to(st.pinCode)
+            .emit(LobbyEvents.GAME_STARTED, { startedAt: Date.now() });
 
-        // phát game_started (để client chuyển trang)
-        this.server
-          .to(st.pinCode)
-          .emit(LobbyEvents.GAME_STARTED, { startedAt: Date.now() });
+          const fresh = await this.service.getSessionById(st.sessionId);
+          const bundle = await this.service.getQuestionForIndex(
+            fresh.kahootId,
+            0,
+          );
+          if (!bundle) return;
 
-        // lấy câu đầu và phát QUESTION_STARTED như cũ
-        const session = await this.service.getSessionById(st.sessionId);
-        const bundle = await this.service.getQuestionForIndex(
-          session.kahootId,
-          0,
-        );
-        if (!bundle) return;
+          const now = Date.now();
+          const expiresAt = now + (bundle.q.timeLimit ?? 20) * 1000;
 
-        const now = Date.now();
-        const expiresAt = now + (bundle.q.timeLimit ?? 20) * 1000;
+          this.clearQuestionTimer(st.pinCode);
+          this.questionState.set(st.pinCode, {
+            questionId: bundle.q.id,
+            expiresAt,
+            timeout: null,
+            counts: {},
+            lastStarted: undefined,
+          });
 
-        this.clearQuestionTimer(st.pinCode);
-        this.questionState.set(st.pinCode, {
-          questionId: bundle.q.id,
-          expiresAt,
-          timeout: null,
-          counts: {},
-          lastStarted: undefined,
-        });
+          const payload: QuestionStartedPayload = {
+            index: 0,
+            question: {
+              id: bundle.q.id,
+              text: nonNullString(bundle.q.text),
+              imageUrl: bundle.q.imageUrl ?? null,
+              videoUrl: bundle.q.videoUrl ?? null,
+              timeLimit: bundle.q.timeLimit,
+              pointsMultiplier: bundle.q.pointsMultiplier ?? null,
+            },
+            answers: bundle.answers.map((a) => ({
+              id: a.id,
+              text: nonNullString(a.text),
+              shape: SHAPE_MAP[a.shape],
+              colorHex: a.colorHex ?? null,
+              orderIndex: a.orderIndex ?? null,
+            })),
+            expiresAt,
+          };
 
-        const payload: QuestionStartedPayload = {
-          index: 0,
-          question: {
-            id: bundle.q.id,
-            text: nonNullString(bundle.q.text),
-            imageUrl: bundle.q.imageUrl ?? null,
-            videoUrl: bundle.q.videoUrl ?? null,
-            timeLimit: bundle.q.timeLimit,
-            pointsMultiplier: bundle.q.pointsMultiplier ?? null,
-          },
-          answers: bundle.answers.map((a) => ({
-            id: a.id,
-            text: nonNullString(a.text),
-            shape: SHAPE_MAP[a.shape],
-            colorHex: a.colorHex ?? null,
-            orderIndex: a.orderIndex ?? null,
-          })),
-          expiresAt,
-        };
+          const stQ = this.questionState.get(st.pinCode);
+          if (stQ) stQ.lastStarted = payload;
 
-        const stQ = this.questionState.get(st.pinCode);
-        if (stQ) stQ.lastStarted = payload;
-
-        this.server.to(st.pinCode).emit(LobbyEvents.QUESTION_STARTED, payload);
-        this.scheduleCloseQuestion(st.pinCode);
+          this.server
+            .to(st.pinCode)
+            .emit(LobbyEvents.QUESTION_STARTED, payload);
+          this.scheduleCloseQuestion(st.pinCode);
+        } catch (err: any) {
+          this.emitError(client, err?.message || 'Failed to start game');
+        } finally {
+          this.starting.delete(st.pinCode);
+        }
       }, COUNTDOWN_MS);
     } catch (e: any) {
       this.emitError(client, e.message || 'Failed to start game');
@@ -343,9 +420,15 @@ export class LobbyGateway {
   ) {
     try {
       const st = this.clientState.get(client.id);
-      if (!st?.isHost) throw new Error('Only host can change question');
+      if (!st) throw new Error('Not joined');
 
       const session = await this.service.getSessionById(st.sessionId);
+      if (!session) throw new Error('Lobby not found');
+      const userId = client.data.userId as string;
+      if (String(userId) !== String(session.hostId)) {
+        throw new Error('Only host can change question');
+      }
+
       const bundle = await this.service.getQuestionForIndex(
         session.kahootId,
         body.nextIndex,
@@ -450,7 +533,14 @@ export class LobbyGateway {
   ) {
     try {
       const st = this.clientState.get(client.id);
-      if (!st?.isHost) throw new Error('Only host can end the game');
+      if (!st) throw new Error('Not joined');
+
+      const session = await this.service.getSessionById(st.sessionId);
+      if (!session) throw new Error('Lobby not found');
+      const userId = client.data.userId as string;
+      if (String(userId) !== String(session.hostId)) {
+        throw new Error('Only host can end the game');
+      }
 
       await this.service.endGame(st.sessionId, st.playerId);
       const leaderboard = await this.service.getLeaderboardByPin(st.pinCode);
@@ -458,11 +548,15 @@ export class LobbyGateway {
 
       this.clearQuestionTimer(st.pinCode);
       this.questionState.delete(st.pinCode);
+
+      // (Tuỳ chọn) Có thể phát thêm HOST_LEAVE nếu muốn FE coi như phòng đóng hẳn:
+      // this.server.to(st.pinCode).emit(LobbyEvents.HOST_LEAVE, { pinCode: st.pinCode });
     } catch (e: any) {
       this.emitError(client, e.message || 'Failed to end game');
     }
   }
 
+  // 🔧 Thay toàn bộ hàm onKick
   @SubscribeMessage(LobbyEvents.KICK_PLAYER)
   async onKick(
     @MessageBody() body: KickPlayerPayload,
@@ -470,13 +564,61 @@ export class LobbyGateway {
   ) {
     try {
       const st = this.clientState.get(client.id);
-      if (!st?.isHost) throw new Error('Only host can kick players');
+      if (!st) throw new Error('Not joined');
 
+      const session = await this.service.getSessionById(st.sessionId);
+      if (!session) throw new Error('Lobby not found');
+      const userId = client.data.userId as string;
+      if (String(userId) !== String(session.hostId)) {
+        throw new Error('Only host can kick players');
+      }
+
+      // 1) Cập nhật DB (xoá player khỏi phòng)
       await this.service.kickPlayer(st.sessionId, body.playerId);
+
+      // 2) Tìm tất cả socket của player này (mở nhiều tab)
+      const targetSocketIds: string[] = [];
+      for (const [cid, cst] of this.clientState.entries()) {
+        if (
+          cst.pinCode === st.pinCode &&
+          cst.playerId === body.playerId &&
+          !cst.isHost
+        ) {
+          targetSocketIds.push(cid);
+        }
+      }
+
+      // 3) Thông báo riêng cho từng socket bị kick + đuổi ra
+      for (const cid of targetSocketIds) {
+        const target = this.server.sockets.sockets.get(cid);
+        if (!target) continue;
+
+        // cắm cờ để handleDisconnect không gọi leaveLobby nữa
+        target.data.kicked = true;
+
+        // Thông báo riêng: có thêm self: true để FE biết chắc
+        target.emit(LobbyEvents.PLAYER_KICKED, {
+          playerId: body.playerId,
+          self: true,
+        });
+
+        // rời room + ngắt kết nối
+        const tgtState = this.clientState.get(cid);
+        if (tgtState) {
+          target.leave(tgtState.pinCode);
+        }
+        target.disconnect(true);
+
+        // dọn state phía server
+        this.clientState.delete(cid);
+      }
+
+      // 4) Broadcast cho toàn phòng để cập nhật UI người còn lại
       this.server
         .to(st.pinCode)
         .emit(LobbyEvents.PLAYER_KICKED, { playerId: body.playerId });
 
+      // 5) Gửi snapshot mới
       this.emitParticipantsSnapshot(st.pinCode);
     } catch (e: any) {
       this.emitError(client, e.message || 'Failed to kick player');
