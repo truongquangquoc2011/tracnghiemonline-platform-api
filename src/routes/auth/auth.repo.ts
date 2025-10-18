@@ -213,7 +213,7 @@ export class AuthRepository {
     return this.prismaService.refreshToken.deleteMany({
       where: {
         userId,
-        deviceId,
+        //deviceId,
       },
     })
   }

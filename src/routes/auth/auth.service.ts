@@ -293,6 +293,7 @@ export class AuthService {
     data: CreateOAuthUserDTO,
   ): Promise<OAuthUserType> {
     const { email } = data;
+    let isNewUser = false;  
 
     try {
       const result = await this.prismaService.$transaction(async (tx) => {
@@ -313,13 +314,15 @@ export class AuthService {
         );
 
         // Stage 4: Create new user in transaction and return selected fields
-        return this.authRepository.createOAuthUser(createData, tx);
+        const created = await this.authRepository.createOAuthUser(createData, tx);
+          isNewUser = true;
+          return created;
       });
 
       // Stage 5: Logging after transaction completes successfully
       this.logger.log(MESSAGES.AUTH.OAUTH_CREATE_SUCCESS, {
         email,
-        isNewUser: !result.id, // Note: result.id always exists, this line is optional
+        isNewUser, // Note: result.id always exists, this line is optional
       });
 
       // Final return
