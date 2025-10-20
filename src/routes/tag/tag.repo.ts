@@ -72,16 +72,28 @@ export class TagRepository {
    * List tags của 1 kahoot (có include info tag)
    */
   async listKahootTags(kahootId: string) {
-    try {
-      return await this.prismaService.kahootTag.findMany({
-        where: { kahootId },
-        include: { tag: true },
-      });
-    } catch (error) {
-        if (isUniqueConstraintPrismaError(error)) {
-        throw TagNotFoundException;
-    }
-      throw error 
+  try {
+    const rows = await this.prismaService.kahootTag.findMany({
+      where: { kahootId },
+      include: { tag: true },
+    });
+    // lọc mồ côi (nếu có tag=null)
+    return rows.filter(r => r.tag != null);
+  } catch (error) {
+    // nếu vẫn lỗi, dọn orphan tối thiểu:
+    const links = await this.prismaService.kahootTag.findMany({
+      where: { kahootId },
+      select: { id: true, tagId: true },
+    });
+    const tagIds = [...new Set(links.map(l => l.tagId))];
+    const tags = await this.prismaService.tag.findMany({
+      where: { id: { in: tagIds } },
+      select: this.CONFIG.SELECT_TAG_FIELDS,
+    });
+    const ok = new Map(tags.map(t => [t.id, t]));
+    return links
+      .filter(l => ok.has(l.tagId))
+      .map(l => ({ kahootId, tagId: l.tagId, tag: ok.get(l.tagId)! }));
   }
 }
   /**
@@ -270,5 +282,37 @@ export class TagRepository {
       throw AddTagToKahootFailedException;
     }
   }
+  // tag.repo.ts
+async upsertTagsGlobal(names: string[]) {
+  try {
+    return await this.prismaService.$transaction(
+      names.map((name) =>
+        this.prismaService.tag.upsert({
+          where: { name },
+          create: { name },
+          update: { name },
+          select: this.CONFIG.SELECT_TAG_FIELDS,
+        }),
+      ),
+    );
+  } catch (error) {
+    if (isUniqueConstraintPrismaError(error)) {
+      throw UpsertTagFailedException;
+    }
+    throw UpsertTagFailedException;
+  }
 }
 
+// tag.repo.ts
+async deleteTagById(tagId: string) {
+  try {
+    return await this.prismaService.tag.delete({
+      where: { id: tagId },
+      select: this.CONFIG.SELECT_TAG_FIELDS,
+    });
+  } catch (error) {
+    throw DeleteTagFailedException;
+  }
+}
+
+}

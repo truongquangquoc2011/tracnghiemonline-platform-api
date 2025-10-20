@@ -12,6 +12,7 @@ import {
   Patch,
   UseInterceptors,
   UploadedFile,
+  Req
 } from '@nestjs/common'
 import { AuthService } from './auth.service'
 import { Auth, IsPublic } from 'src/shared/decorator/auth.decorator'
@@ -46,19 +47,23 @@ import { FileInterceptor } from '@nestjs/platform-express'
 import { NoFileProvidedException } from 'src/shared/constants/file-error.constant'
 import { CloudinaryService } from 'src/shared/services/cloudinary.service'
 import { UpdateAvatarResType } from './auth.model'
+import { GoogleService } from './google.service';
+
 @Controller('auth')
 @ApiTags('Auth')
 @SkipThrottle({ short: true, long: true })
 export class AuthController {
-  private readonly facebookRedirectBase: URL
+  private readonly facebookRedirectBase: URL;
+  private readonly googleRedirectBase: URL;
   
-
   constructor(
     private readonly authService: AuthService,
     @Inject(FacebookService) private readonly facebookService: FacebookService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly googleService: GoogleService,
   ) {
     this.facebookRedirectBase = new URL(envConfig.facebookClientRedirectUri)
+    this.googleRedirectBase = new URL(envConfig.googleClientRedirectUri);
   }
 
   @SkipThrottle({ short: false, long: false })
@@ -218,5 +223,33 @@ export class AuthController {
 
     const avatarUrl = await this.cloudinaryService.uploadImage(file)
     return this.authService.updateUserAvatar(userId, avatarUrl)
+  }
+
+  @Get('google')
+  @IsPublic()
+  @HttpCode(HttpStatus.OK)
+  getGoogleAuthUrl(
+    @DeviceId() deviceId: string,
+    @Ip() ipAddress: string,
+  ) {
+    return this.googleService.getAuthorizationUrl({ deviceId, ipAddress })
+  }
+
+  @Get('google/callback')
+  @IsPublic()
+  @HttpCode(HttpStatus.OK)
+  async googleCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    const redirectUrl = await handleOAuthCallback(
+      this.googleService,
+      this.googleRedirectBase,
+      code,
+      state,
+      AuthError.GOOGLE_LOGIN_FAILED,
+    )
+    return res.redirect(redirectUrl.toString())
   }
 }

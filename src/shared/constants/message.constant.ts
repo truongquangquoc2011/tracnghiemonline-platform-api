@@ -28,6 +28,12 @@ export const MESSAGES = {
     OAUTH_CREATE_SUCCESS: 'OAuth user processed successfully',
     DEVICE_REGISTER_FAILED: 'Failed to register device',
     REFRESH_TOKEN_DELETE_FAILED: 'Failed to delete refresh tokens for device',
+    // này của google
+    GOOGLE_CONFIG_MISSING: 'Google OAuth configuration is missing',
+    GOOGLE_AUTH_URL_FAILED: 'Failed to generate Google auth URL',
+    GOOGLE_CODE_OR_STATE_MISSING: 'Google OAuth code or state is missing',
+    GOOGLE_TOKEN_EXCHANGE_FAILED: 'Failed to obtain Google access token',
+    GOOGLE_USER_FETCH_FAILED: 'Failed to fetch Google user info',
     OTP: {
       NAME: 'Gmail account display name for OTP.',
       ACCOUNT: 'Gmail account email for OTP.',

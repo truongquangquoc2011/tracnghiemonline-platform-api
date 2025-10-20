@@ -621,4 +621,42 @@ export class KahootBankService {
       throw error;
     }
   }
+
+  /**
+   * Chỉ cho phép ADMIN.
+   * Tuỳ schema của bạn, mình kiểm tra "mạnh tay" để đỡ lệ thuộc tên field:
+   */
+  async assertAdmin(userId: string) {
+    // 1) Lấy user (role là ID tham chiếu)
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+
+    if (!u) throw new ForbiddenException('Forbidden');
+    const roleId = String(u.role ?? '').trim();
+    if (!roleId) throw new ForbiddenException('Forbidden');
+
+    // 2) Tải role theo ID
+    const role = await this.prisma.role.findUnique({
+      where: { id: roleId },
+      select: { id: true, name: true, slug: true, isActive: true },
+    });
+
+    // 3) Kiểm tra quyền admin theo slug/name
+    if (!role || role.isActive === false) {
+      throw new ForbiddenException('Forbidden');
+    }
+    const okNames = new Set(['ADMIN', 'PRO']);
+    const okSlugs = new Set(['admin', 'proadmin']);
+
+    const nameOk = okNames.has(String(role.name ?? '').toUpperCase());
+    const slugOk = okSlugs.has(String(role.slug ?? '').toLowerCase());
+
+    if (!(nameOk || slugOk)) {
+      throw new ForbiddenException('Forbidden');
+    }
+
+    return true;
+  }
 }
