@@ -23,6 +23,10 @@ import {
 import { isUniqueConstraintPrismaError } from 'src/shared/helper';
 import { ChallengeStatus } from '@prisma/client';
 
+import * as fs from 'fs';
+import * as path from 'path';
+// KHÔNG dùng import * as PDFDocument ...
+import PDFDocument = require('pdfkit'); // cách an toàn cho TS + CJS
 // shuffle ổn định theo seed (LCG đơn giản)
 function seededShuffle<T>(items: T[], seed: string): T[] {
   let s = 0;
@@ -418,5 +422,183 @@ export class ChallengeService {
       if (error.code === 'P2025') throw ChallengeNotFoundException;
       throw error;
     }
+  }
+
+  /** ===========================
+   *  LEADERBOARD (JSON)
+   *  =========================== */
+  async listLeaderboard(challengeId: string, query: any, userId: string) {
+    const page  = Math.max(1, Number(query.page)  || 1);
+    const limit = Math.min(1000, Math.max(1, Number(query.limit) || 100));
+    const sort  = String(query.sort || 'scoreTotal.desc');
+
+    // Chỉ owner xem toàn bảng điểm
+    await this.repo.assertOwnerOrThrow(challengeId, userId);
+    return await this.repo.listLeaderboard(challengeId, { page, limit, sort });
+  }
+
+    /** ===========================
+     *  LEADERBOARD → PDF
+     *  =========================== */
+  async exportLeaderboardPdf(
+    challengeId: string,
+    query: any,
+    userId: string,
+    res: any,
+  ) {
+    // 0) Data + meta
+    const data = await this.listLeaderboard(challengeId, query, userId);
+    const meta = await this.repo['prisma'].challenge.findUnique({
+      where: { id: challengeId },
+      select: { title: true, pinCode: true },
+    });
+
+    // 1) PDF to Buffer (tránh write-after-end)
+    const doc = new PDFDocument({ size: 'A4', margin: 36 });
+
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('error', () => {
+      try { res.status(500).json({ message: 'PDF render failed' }); } catch {}
+    });
+    doc.on('end', () => {
+      const pdfBuffer = Buffer.concat(chunks);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Length', String(pdfBuffer.length));
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="leaderboard-${challengeId}.pdf"`,
+      );
+      res.end(pdfBuffer);
+    });
+
+    // 2) Fonts
+    const fontPath = path.join(process.cwd(), 'assets', 'fonts', 'NotoSans-Regular.ttf');
+    const monoPath = path.join(process.cwd(), 'assets', 'fonts', 'NotoSansMono-Regular.ttf');
+    const hasMain = fs.existsSync(fontPath);
+    const hasMono = fs.existsSync(monoPath);
+
+    if (hasMain) doc.font(fontPath); else doc.font('Helvetica');
+
+    // 3) Header
+    const printableTitle = meta?.title || `Challenge ${challengeId}`;
+    const printablePIN = meta?.pinCode ? `Mã PIN: ${meta.pinCode}` : '';
+    doc.fontSize(18).text(`Bảng xếp hạng - ${printableTitle}`, { underline: true });
+    if (printablePIN) doc.moveDown(0.1).fontSize(12).fillOpacity(0.7).text(printablePIN);
+    doc.fillOpacity(1);
+
+    doc.moveDown(0.5);
+    doc.fontSize(10).text(`Xuất lúc: ${new Date().toLocaleString()}`);
+    doc.text(`Trang: ${data.page} • Giới hạn: ${data.limit} • Tổng lượt tham gia: ${data.total}`);
+    doc.moveDown(0.6);
+
+    // 4) Table layout (cột cố định, canh phải số, zebra rows, tự addPage)
+    const PAGE_W = 595.28;
+    const TOP = 36, BOT = 36, LEFT = 36, RIGHT = PAGE_W - 36;
+    const CONTENT_MAX_Y = 842 - BOT;
+
+    // Cột (cố định Submitted rộng để không xuống dòng, kéo Score lệch trái)
+    const COL_NO_X = LEFT,  COL_NO_W = 35;
+
+    // khoảng cách giữa các cột
+    const GAP_NO_NICK = 10;
+    const GAP_NICK_SCORE = 16;
+    const GAP_SCORE_SUBMIT = 40;
+
+    // 1) Cột Submitted: đặt cố định ở PHÍA PHẢI với width lớn để không wrap
+    const COL_SUBMIT_W = 170;
+    const COL_SUBMIT_X = RIGHT - COL_SUBMIT_W;
+
+    // 2) Cột Score: lùi sang trái 1 khoảng GAP_SCORE_SUBMIT so với Submitted
+    const COL_SCORE_W = 50;
+    const COL_SCORE_X = COL_SUBMIT_X - GAP_SCORE_SUBMIT - COL_SCORE_W;
+
+    // 3) Cột Nickname: chiếm phần còn lại giữa No. và Score
+    const COL_NICK_X = COL_NO_X + COL_NO_W + GAP_NO_NICK;
+    const COL_NICK_W = COL_SCORE_X - GAP_NICK_SCORE - COL_NICK_X;
+
+    const BASE_FONT = 11;
+    const HEADER_FONT = 12;
+    const ROW_GAP = 6;
+    const MIN_ROW_H = 18;
+
+    let y = doc.y;
+
+    const renderHeaderRow = () => {
+      doc.fontSize(HEADER_FONT);
+      doc.text('STT',         COL_NO_X,     y, { width: COL_NO_W,    align: 'center'  });
+      doc.text('Biệt danh',    COL_NICK_X,   y, { width: COL_NICK_W,  align: 'center'  });
+      doc.text('Điểm số',       COL_SCORE_X,  y, { width: COL_SCORE_W, align: 'center' });
+      doc.text('Thời gian nộp bài',COL_SUBMIT_X, y, { width: COL_SUBMIT_W,align: 'center' });
+
+      // kẻ dưới header
+      const h = Math.max(
+        doc.heightOfString('STT', { width: COL_NO_W }),
+        doc.heightOfString('Biệt danh', { width: COL_NICK_W }),
+        doc.heightOfString('Điểm số', { width: COL_SCORE_W }),
+        doc.heightOfString('Thời gian nộp bài', { width: COL_SUBMIT_W }),
+      );
+      y += h + 4;
+      doc.moveTo(LEFT, y).lineTo(RIGHT, y).stroke();
+      y += 4;
+      doc.fontSize(BASE_FONT);
+    };
+
+    const ensurePage = (neededH: number, drawHeader = true) => {
+      if (y + neededH > CONTENT_MAX_Y) {
+        doc.addPage();
+        y = TOP;
+        if (drawHeader) renderHeaderRow();
+      }
+    };
+
+    // In header bảng lần đầu
+    renderHeaderRow();
+
+    const drawRow = (row: any, idx: number) => {
+      const nick = row.nickname ?? '(guest)';
+      const submitted = row.submittedAt ? new Date(row.submittedAt).toLocaleString() : '-';
+      const scoreStr = String(row.scoreTotal ?? 0);
+      const noStr = String(row.rank);
+
+      // Tính chiều cao dòng theo nội dung dài nhất
+      const hNo     = doc.heightOfString(noStr,      { width: COL_NO_W });
+      const hNick   = doc.heightOfString(nick,       { width: COL_NICK_W });
+      const hScore  = doc.heightOfString(scoreStr,   { width: COL_SCORE_W });
+      const hSubmit = doc.heightOfString(submitted,  { width: COL_SUBMIT_W });
+      const rowH = Math.max(MIN_ROW_H, hNo, hNick, hScore, hSubmit);
+
+      // Nếu sắp tràn trang → addPage + in lại header
+      ensurePage(rowH + ROW_GAP);
+
+      // Zebra background (hàng chẵn)
+      if (idx % 2 === 1) {
+        doc.save().rect(LEFT, y - 2, RIGHT - LEFT, rowH + 4).fillOpacity(0.04).fill('#000').restore();
+      }
+
+      // In từng ô tại toạ độ cố định
+      doc.fillColor('black');
+      doc.text(noStr,     COL_NO_X,     y, { width: COL_NO_W,    align: 'center'  });
+      doc.text(nick,      COL_NICK_X,   y, { width: COL_NICK_W,  align: 'center'  });
+
+      // Số dùng font mono nếu có → rất thẳng hàng
+      if (hasMono) doc.font(monoPath);
+      doc.text(scoreStr,  COL_SCORE_X,  y, { width: COL_SCORE_W, align: 'center' });
+      if (hasMain) doc.font(fontPath); else doc.font('Helvetica');
+
+      doc.text(submitted, COL_SUBMIT_X, y, { width: COL_SUBMIT_W, align: 'center' });
+
+      y += rowH + ROW_GAP;
+    };
+
+    data.items.forEach((row: any, idx: number) => drawRow(row, idx));
+
+    // 5) Footer nhẹ (tùy chọn)
+    ensurePage(24, false);
+    doc.moveDown(0.5).fontSize(9).fillOpacity(0.7)
+      .text(`Challenge ID: ${challengeId}`, LEFT, y)
+      .fillOpacity(1);
+
+    doc.end();
   }
 }

@@ -230,6 +230,62 @@ export class ChallengeRepository {
     return { page: query.page, limit: query.limit, total, items: rows };
   }
 
+  // E) LEADERBOARD: chỉ tính attempts đã nộp (submittedAt != null)
+  async listLeaderboard(
+    challengeId: string,
+    query: { page: number; limit: number; sort: string },
+  ) {
+    const orderBy = this.parseOrder(
+      query.sort,
+      ['scoreTotal', 'submittedAt', 'nickname'],
+      { scoreTotal: 'desc' },
+    );
+
+    const where: Prisma.ChallengeAttemptWhereInput = {
+      challengeId,
+      NOT: { submittedAt: null },
+    };
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.challengeAttempt.count({ where }),
+      this.prisma.challengeAttempt.findMany({
+        where,
+        orderBy,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        select: {
+          id: true,
+          userId: true,
+          nickname: true,
+          submittedAt: true,
+          scoreTotal: true,
+        },
+      }),
+    ]);
+
+    // Tính hạng (competition ranking - đồng điểm cùng hạng)
+    let lastScore: number | null = null;
+    let lastRank = 0;
+    const startIndex = (query.page - 1) * query.limit;
+    const items = rows.map((r, i) => {
+      const s = r.scoreTotal ?? 0;
+      if (lastScore === null || s !== lastScore) {
+        lastRank = startIndex + i + 1;
+        lastScore = s;
+      }
+      return {
+        rank: lastRank,
+        attemptId: r.id,
+        userId: r.userId,
+        nickname: r.nickname,
+        scoreTotal: s,
+        submittedAt: r.submittedAt,
+      };
+    });
+
+    return { page: query.page, limit: query.limit, total, items };
+  }
+
     /** ====== Create / Update ====== */
   async createChallenge(
     data: Prisma.ChallengeCreateInput,
@@ -248,7 +304,7 @@ export class ChallengeRepository {
       // 1) Thử tạo với pinCode ngẫu nhiên, nếu trùng thì retry
       const MAX_RETRY = 8;
       for (let i = 0; i < MAX_RETRY; i++) {
-        const pinCode = this.generatePinCode(7); // 7–8 số sẽ ít trùng hơn
+        const pinCode = this.generatePinCode(7);
 
         try {
           const result = await this.prisma.challenge.create({

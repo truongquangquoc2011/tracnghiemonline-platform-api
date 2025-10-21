@@ -133,6 +133,26 @@ export const ListAttemptsQuerySchema = PaginationSchema.extend({
     ),
 });
 
+/** ====== LEADERBOARD (creator/owner) ====== */
+export const ListLeaderboardQuerySchema = PaginationSchema.extend({
+  // sort mặc định theo điểm giảm dần
+  sort: z
+    .string()
+    .default('scoreTotal.desc')
+    .refine(
+      (v) =>
+        [
+          'scoreTotal.asc',
+          'scoreTotal.desc',
+          'submittedAt.asc',
+          'submittedAt.desc',
+          'nickname.asc',
+          'nickname.desc',
+        ].includes(v),
+      'Invalid sort',
+    ),
+});
+
 /** ====== ATTEMPT DETAIL / RESPONSES ====== */
 export const AttemptParamSchema = z.object({
   attempt_id: ObjectIdSchema,
