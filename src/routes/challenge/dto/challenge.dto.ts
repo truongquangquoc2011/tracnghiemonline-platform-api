@@ -13,6 +13,7 @@ import {
   SubmitAttemptBodySchema,
   SubmitAttemptParamSchema,
   UpdateChallengeBodySchema,
+  ListLeaderboardQuerySchema,
 } from '../challenge.model';
 
 /** ====== LIST / DETAIL ====== */
@@ -44,3 +45,6 @@ export class ListAttemptsQueryDTO extends createZodDto(ListAttemptsQuerySchema) 
 
 /** ====== ATTEMPT DETAIL / RESPONSES ====== */
 export class AttemptParamDTO extends createZodDto(AttemptParamSchema) {}
+
+/** ====== LEADERBOARD (creator/owner) ====== */
+export class ListLeaderboardQueryDTO extends createZodDto(ListLeaderboardQuerySchema) {}

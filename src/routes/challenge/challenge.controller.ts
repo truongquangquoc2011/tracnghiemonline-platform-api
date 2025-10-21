@@ -23,12 +23,16 @@ import {
   SubmitAttemptParamDTO,
   ChallengeParamDTO,
   ListChallengesQueryDTO,
+  ListLeaderboardQueryDTO,
 } from './dto/challenge.dto';
 import { Auth } from 'src/shared/decorator/auth.decorator';
 import { AuthTypes, ConditionGuard } from 'src/shared/constants/auth.constant';
 import { ActiveUser } from 'src/shared/decorator/active-user.decorator';
 import { UseGuards, /* ... */ } from '@nestjs/common';
 import { OptionalAccessTokenGuard } from 'src/shared/guards/optional-access-token.guard';
+import { Response } from 'express';
+import { Res } from '@nestjs/common';
+
 @ApiTags('Challenges')
 @Controller('challenges')
 export class ChallengeController {
@@ -58,6 +62,33 @@ async listAttempts(
   @ActiveUser('userId') userId: string,
 ) {
   return await this.service.listAttempts(param.id, query, userId);
+}
+
+// 2b) LEADERBOARD (owner) - JSON
+@Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+@Get(':id/leaderboard')
+@ApiOperation({ summary: 'Bảng xếp hạng (leaderboard) theo điểm - owner xem' })
+@ApiResponse({ status: 200 })
+async listLeaderboardJSON(
+  @Param() param: ChallengeParamDTO,
+  @Query() query: ListChallengesQueryDTO /* hoặc ListLeaderboardQueryDTO */,
+  @ActiveUser('userId') userId: string,
+) {
+  return await this.service.listLeaderboard(param.id, query, userId);
+}
+
+// 2c) LEADERBOARD (owner) - PDF export
+@Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+@Get(':id/leaderboard/export')
+@ApiOperation({ summary: 'Xuất bảng điểm Leaderboard thành PDF (owner)' })
+@ApiResponse({ status: 200 })
+async exportLeaderboardPDF(
+  @Param() param: ChallengeParamDTO,
+  @Query() query: ListLeaderboardQueryDTO,
+  @ActiveUser('userId') userId: string,
+  @Res() res: Response, // <— không passthrough
+) {
+  await this.service.exportLeaderboardPdf(param.id, query, userId, res);
 }
 
 // 3) GET attempt detail (owner hoặc chính người làm attempt)
