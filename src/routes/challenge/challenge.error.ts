@@ -89,7 +89,13 @@ export const OpenChallengeFailedException = new ConflictException({
   path: 'challenge',
 });
 
-export const CloseChallengeFailedException = new ConflictException({
-  message: 'Không thể ĐÓNG challenge',
+export const OpenChallengeTimeExpiredException = new BadRequestException({
+  message: 'Không thể mở challenge vì thời gian kết thúc (dueAt) đã hết hạn',
   path: 'challenge',
 });
+
+export const CloseChallengeFailedException = new ConflictException({
+  message: 'Không thể đóng challenge',
+  path: 'challenge',
+});
+

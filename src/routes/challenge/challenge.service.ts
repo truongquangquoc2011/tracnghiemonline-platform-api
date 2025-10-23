@@ -42,7 +42,7 @@ function seededShuffle<T>(items: T[], seed: string): T[] {
 
 @Injectable()
 export class ChallengeService {
-  constructor(private readonly repo: ChallengeRepository) {}
+  constructor(private readonly repo: ChallengeRepository) { }
   async getNextQuestionForAttempt(attemptId: string, userId: string | null) {
     const attempt = await this.repo.findAttemptWithChallengeAndQA(attemptId);
     if (!attempt) throw new NotFoundException('Attempt not found');
@@ -218,6 +218,7 @@ export class ChallengeService {
   }
 
   async openChallenge(id: string, userId: string) {
+    await this.repo.bulkCloseExpired();
     await this.repo.assertOwnerOrThrow(id, userId);
     const result = await this.repo.openChallenge(id);
     return { message: 'Đã mở challenge', challenge: result };
@@ -233,20 +234,33 @@ export class ChallengeService {
    *  CREATE
    *  =========================== */
   async createChallenge(body: CreateChallengeBodyDTO, userId: string) {
-    // 1) user phải tồn tại
-    const user = await this.repo['prisma'].user.findUnique({
-      where: { id: userId },
-    });
-    if (!user) {
-      // chặn sớm: token hợp lệ nhưng user không tồn tại trong DB
-      throw new ForbiddenException({
-        message: 'User không tồn tại',
-        path: 'user',
+    await this.repo.bulkCloseExpired();
+    // === NEW: validate start_at & due_at bắt buộc + thứ tự ===
+    const startAt = body.start_at ? new Date(body.start_at) : null;
+    const dueAt = body.due_at ? new Date(body.due_at) : null;
+
+    if (!startAt || !dueAt) {
+      throw new BadRequestException({
+        message: 'start_at và due_at là bắt buộc',
+        path: ['start_at', 'due_at'],
+      });
+    }
+    if (!(startAt < dueAt)) {
+      throw new BadRequestException({
+        message: 'start_at phải nhỏ hơn due_at',
+        path: ['start_at', 'due_at'],
       });
     }
 
+    // ========================================================
+    // 1) user phải tồn tại
+    const user = await this.repo['prisma'].user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new ForbiddenException({ message: 'User không tồn tại', path: 'user' });
+    }
+
     // 2) kahoot thuộc owner
-    await this.repo.assertKahootOwnerOrThrow(body.kahoot_id, userId); // :contentReference[oaicite:4]{index=4}
+    await this.repo.assertKahootOwnerOrThrow(body.kahoot_id, userId);
 
     // 3) tạo challenge
     const created = await this.repo.createChallenge({
@@ -254,20 +268,16 @@ export class ChallengeService {
       creator: { connect: { id: userId } },
       title: body.title,
       introText: body.intro_text,
-      startAt: body.start_at ? new Date(body.start_at) : null,
-      dueAt: body.due_at ? new Date(body.due_at) : null,
+      startAt,
+      dueAt,
       status: body.status ?? 'open',
       answerOrderRandom: body.answer_order_random,
       questionOrderRandom: body.question_order_random,
       streaksEnabled: body.streaks_enabled,
     });
 
-    return {
-      id: created.id,
-      title: created.title,
-      status: created.status,
-      createdAt: created.createdAt,
-    };
+    return { id: created.id, title: created.title, status: created.status, createdAt: created.createdAt };
+
   }
 
   /** ===========================
@@ -280,6 +290,33 @@ export class ChallengeService {
   ): Promise<any> {
     try {
       await this.repo.assertOwnerOrThrow(id, userId);
+
+      // lấy bản ghi hiện tại để hợp nhất thời gian
+      const cur = await this.repo['prisma'].challenge.findUnique({
+        where: { id },
+        select: { startAt: true, dueAt: true },
+      });
+      if (!cur) throw ChallengeNotFoundException;
+
+      const effStart = body.start_at ? new Date(body.start_at) : cur.startAt;
+      const effDue = body.due_at ? new Date(body.due_at) : cur.dueAt;
+
+      // Nếu client có ý định đụng vào thời gian (1 trong 2 field xuất hiện),
+      // buộc cả hai phải có mặt sau hợp nhất và hợp lệ.
+      if ((body.start_at !== undefined) || (body.due_at !== undefined)) {
+        if (!effStart || !effDue) {
+          throw new BadRequestException({
+            message: 'start_at và due_at là bắt buộc khi cập nhật thời gian',
+            path: ['start_at', 'due_at'],
+          });
+        }
+        if (!(effStart < effDue)) {
+          throw new BadRequestException({
+            message: 'start_at phải nhỏ hơn due_at',
+            path: ['start_at', 'due_at'],
+          });
+        }
+      }
 
       const updated = await this.repo.updateChallenge(id, {
         title: body.title,
@@ -428,18 +465,18 @@ export class ChallengeService {
    *  LEADERBOARD (JSON)
    *  =========================== */
   async listLeaderboard(challengeId: string, query: any, userId: string) {
-    const page  = Math.max(1, Number(query.page)  || 1);
+    const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(1000, Math.max(1, Number(query.limit) || 100));
-    const sort  = String(query.sort || 'scoreTotal.desc');
+    const sort = String(query.sort || 'scoreTotal.desc');
 
     // Chỉ owner xem toàn bảng điểm
     await this.repo.assertOwnerOrThrow(challengeId, userId);
     return await this.repo.listLeaderboard(challengeId, { page, limit, sort });
   }
 
-    /** ===========================
-     *  LEADERBOARD → PDF
-     *  =========================== */
+  /** ===========================
+   *  LEADERBOARD → PDF
+   *  =========================== */
   async exportLeaderboardPdf(
     challengeId: string,
     query: any,
@@ -459,7 +496,7 @@ export class ChallengeService {
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('error', () => {
-      try { res.status(500).json({ message: 'PDF render failed' }); } catch {}
+      try { res.status(500).json({ message: 'PDF render failed' }); } catch { }
     });
     doc.on('end', () => {
       const pdfBuffer = Buffer.concat(chunks);
@@ -498,7 +535,7 @@ export class ChallengeService {
     const CONTENT_MAX_Y = 842 - BOT;
 
     // Cột (cố định Submitted rộng để không xuống dòng, kéo Score lệch trái)
-    const COL_NO_X = LEFT,  COL_NO_W = 35;
+    const COL_NO_X = LEFT, COL_NO_W = 35;
 
     // khoảng cách giữa các cột
     const GAP_NO_NICK = 10;
@@ -526,10 +563,10 @@ export class ChallengeService {
 
     const renderHeaderRow = () => {
       doc.fontSize(HEADER_FONT);
-      doc.text('STT',         COL_NO_X,     y, { width: COL_NO_W,    align: 'center'  });
-      doc.text('Biệt danh',    COL_NICK_X,   y, { width: COL_NICK_W,  align: 'center'  });
-      doc.text('Điểm số',       COL_SCORE_X,  y, { width: COL_SCORE_W, align: 'center' });
-      doc.text('Thời gian nộp bài',COL_SUBMIT_X, y, { width: COL_SUBMIT_W,align: 'center' });
+      doc.text('STT', COL_NO_X, y, { width: COL_NO_W, align: 'center' });
+      doc.text('Biệt danh', COL_NICK_X, y, { width: COL_NICK_W, align: 'center' });
+      doc.text('Điểm số', COL_SCORE_X, y, { width: COL_SCORE_W, align: 'center' });
+      doc.text('Thời gian nộp bài', COL_SUBMIT_X, y, { width: COL_SUBMIT_W, align: 'center' });
 
       // kẻ dưới header
       const h = Math.max(
@@ -562,10 +599,10 @@ export class ChallengeService {
       const noStr = String(row.rank);
 
       // Tính chiều cao dòng theo nội dung dài nhất
-      const hNo     = doc.heightOfString(noStr,      { width: COL_NO_W });
-      const hNick   = doc.heightOfString(nick,       { width: COL_NICK_W });
-      const hScore  = doc.heightOfString(scoreStr,   { width: COL_SCORE_W });
-      const hSubmit = doc.heightOfString(submitted,  { width: COL_SUBMIT_W });
+      const hNo = doc.heightOfString(noStr, { width: COL_NO_W });
+      const hNick = doc.heightOfString(nick, { width: COL_NICK_W });
+      const hScore = doc.heightOfString(scoreStr, { width: COL_SCORE_W });
+      const hSubmit = doc.heightOfString(submitted, { width: COL_SUBMIT_W });
       const rowH = Math.max(MIN_ROW_H, hNo, hNick, hScore, hSubmit);
 
       // Nếu sắp tràn trang → addPage + in lại header
@@ -578,12 +615,12 @@ export class ChallengeService {
 
       // In từng ô tại toạ độ cố định
       doc.fillColor('black');
-      doc.text(noStr,     COL_NO_X,     y, { width: COL_NO_W,    align: 'center'  });
-      doc.text(nick,      COL_NICK_X,   y, { width: COL_NICK_W,  align: 'center'  });
+      doc.text(noStr, COL_NO_X, y, { width: COL_NO_W, align: 'center' });
+      doc.text(nick, COL_NICK_X, y, { width: COL_NICK_W, align: 'center' });
 
       // Số dùng font mono nếu có → rất thẳng hàng
       if (hasMono) doc.font(monoPath);
-      doc.text(scoreStr,  COL_SCORE_X,  y, { width: COL_SCORE_W, align: 'center' });
+      doc.text(scoreStr, COL_SCORE_X, y, { width: COL_SCORE_W, align: 'center' });
       if (hasMain) doc.font(fontPath); else doc.font('Helvetica');
 
       doc.text(submitted, COL_SUBMIT_X, y, { width: COL_SUBMIT_W, align: 'center' });

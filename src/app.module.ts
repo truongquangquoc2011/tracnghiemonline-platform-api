@@ -16,6 +16,7 @@ import { FavoritesModule } from './routes/favorites/favorites.module';
 import { CommentsModule } from './routes/comments/comments.module';
 import { ChallengeModule } from './routes/challenge/challenge.module';
 import { FileModule } from './routes/file/file.module';
+import { ScheduleModule } from '@nestjs/schedule';
 @Module({
   imports: [
     SharedModule,
@@ -42,7 +43,8 @@ import { FileModule } from './routes/file/file.module';
     FavoritesModule,
     CommentsModule,
     ChallengeModule,
-    FileModule, 
+    FileModule,
+    ScheduleModule.forRoot(), 
   ],
   controllers: [],
   providers: [
