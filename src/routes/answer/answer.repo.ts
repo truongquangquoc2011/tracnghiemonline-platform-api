@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from 'src/shared/services/prisma.service'
 import {
@@ -62,6 +62,9 @@ export class AnswerRepository {
   /**
    * Create a new answer for a question.
    */
+  /**
+   * Create a new answer for a question.
+   */
   async createAnswer(
     questionId: string,
     data: Omit<Prisma.KahootAnswerCreateInput, 'question'>,
@@ -73,9 +76,28 @@ export class AnswerRepository {
           question: { connect: { id: questionId } },
         },
         select: this.CONFIG.SELECT_ANSWER_FIELDS,
-      })
+      });
     } catch (error) {
-      throw CreateAnswerFailedException
+      // Bắt các lỗi Prisma phổ biến để trả message rõ
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        switch (error.code) {
+          case 'P2002': // unique constraint failed
+            // Nếu bạn có unique index (questionId, orderIndex) hoặc (questionId, text)
+            throw new UnprocessableEntityException('Giá trị đã tồn tại (trùng unique constraint).');
+
+          case 'P2003': // foreign key constraint failed
+            // question không tồn tại/không connect được
+            throw new NotFoundException('Câu hỏi không tồn tại hoặc không thể liên kết.');
+
+          case 'P2025': // record to update not found (ít khi xảy ra với create)
+            throw new NotFoundException('Không tìm thấy bản ghi để thao tác.');
+
+          default:
+            throw new UnprocessableEntityException(`Create answer failed (Prisma ${error.code}).`);
+        }
+      }
+      // Unknown
+      throw new UnprocessableEntityException('Create answer failed.');
     }
   }
 

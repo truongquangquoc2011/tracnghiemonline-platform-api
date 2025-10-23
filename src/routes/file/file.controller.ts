@@ -1,4 +1,3 @@
-// src/routes/file/file.controller.ts
 import {
   Controller,
   Post,
