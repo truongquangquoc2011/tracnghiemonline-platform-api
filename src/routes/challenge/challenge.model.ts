@@ -47,12 +47,14 @@ export const CreateChallengeBodySchema = z
     kahoot_id: ObjectIdSchema,
     title: z.string().trim().min(1).max(200),
     intro_text: z.string().trim().max(2000).optional(),
-    start_at: z.string().datetime().optional(), // ISO string
-    due_at: z.string().datetime().optional(), // ISO string
+
+    start_at: z.string().datetime(),
+    due_at: z.string().datetime(),
+
     answer_order_random: z.coerce.boolean().default(true),
     question_order_random: z.coerce.boolean().default(false),
     streaks_enabled: z.coerce.boolean().default(true),
-    status: ChallengeStatusSchema.default('open').optional(), // allow create as 'draft'
+    status: ChallengeStatusSchema.default('open').optional(),
   })
   .refine(
     (d) => {
@@ -66,20 +68,40 @@ export const UpdateChallengeBodySchema = z
   .object({
     title: z.string().trim().min(1).max(200).optional(),
     intro_text: z.string().trim().max(2000).optional(),
+
     start_at: z.string().datetime().optional(),
     due_at: z.string().datetime().optional(),
+
     answer_order_random: z.coerce.boolean().optional(),
     question_order_random: z.coerce.boolean().optional(),
     streaks_enabled: z.coerce.boolean().optional(),
     status: ChallengeStatusSchema.optional(),
   })
-  .refine(
-    (d) => {
-      if (!d.start_at || !d.due_at) return true;
-      return new Date(d.start_at).getTime() < new Date(d.due_at).getTime();
-    },
-    { message: 'start_at must be before due_at', path: ['start_at'] },
-  );
+  .superRefine((d, ctx) => {
+    const hasStart = typeof d.start_at === 'string';
+    const hasDue   = typeof d.due_at   === 'string';
+
+    // Nếu client gửi 1 trong 2 -> bắt buộc gửi cả 2
+    if (hasStart !== hasDue) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Khi cập nhật thời gian, phải gửi cả start_at và due_at',
+        path: hasStart ? ['due_at'] : ['start_at'],
+      });
+      return;
+    }
+
+    // Nếu client có gửi cả 2 -> phải start < due
+    if (hasStart && hasDue) {
+      if (!(new Date(d.start_at!).getTime() < new Date(d.due_at!).getTime())) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'start_at must be before due_at',
+          path: ['start_at'],
+        });
+      }
+    }
+  });
 
 /** ====== OPEN/CLOSE ====== */
 // (không cần body – chỉ dùng param :id)

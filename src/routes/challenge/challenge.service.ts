@@ -180,6 +180,7 @@ async listAttemptResponses(attemptId: string, query: any, userId: string | null)
 }
 
   async openChallenge(id: string, userId: string) {
+    await this.repo.bulkCloseExpired();          
     await this.repo.assertOwnerOrThrow(id, userId);
     const result = await this.repo.openChallenge(id);
     return { message: 'Đã mở challenge', challenge: result };
@@ -195,32 +196,50 @@ async listAttemptResponses(attemptId: string, query: any, userId: string | null)
    *  CREATE
    *  =========================== */
   async createChallenge(body: CreateChallengeBodyDTO, userId: string) {
-  // 1) user phải tồn tại
-  const user = await this.repo['prisma'].user.findUnique({ where: { id: userId } });
-  if (!user) {
-    // chặn sớm: token hợp lệ nhưng user không tồn tại trong DB
-    throw new ForbiddenException({ message: 'User không tồn tại', path: 'user' });
+    await this.repo.bulkCloseExpired();
+    // === NEW: validate start_at & due_at bắt buộc + thứ tự ===
+    const startAt = body.start_at ? new Date(body.start_at) : null;
+    const dueAt   = body.due_at   ? new Date(body.due_at)   : null;
+
+    if (!startAt || !dueAt) {
+      throw new BadRequestException({
+        message: 'start_at và due_at là bắt buộc',
+        path: ['start_at','due_at'],
+      });
+    }
+    if (!(startAt < dueAt)) {
+      throw new BadRequestException({
+        message: 'start_at phải nhỏ hơn due_at',
+        path: ['start_at','due_at'],
+      });
+    }
+
+    // ========================================================
+    // 1) user phải tồn tại
+    const user = await this.repo['prisma'].user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new ForbiddenException({ message: 'User không tồn tại', path: 'user' });
+    }
+
+    // 2) kahoot thuộc owner
+    await this.repo.assertKahootOwnerOrThrow(body.kahoot_id, userId);
+
+    // 3) tạo challenge
+    const created = await this.repo.createChallenge({
+      kahoot:  { connect: { id: body.kahoot_id } },
+      creator: { connect: { id: userId } },
+      title: body.title,
+      introText: body.intro_text,
+      startAt,
+      dueAt,
+      status:  body.status ?? 'open',
+      answerOrderRandom:   body.answer_order_random,
+      questionOrderRandom: body.question_order_random,
+      streaksEnabled:      body.streaks_enabled,
+    });
+
+    return { id: created.id, title: created.title, status: created.status, createdAt: created.createdAt };
   }
-
-  // 2) kahoot thuộc owner
-  await this.repo.assertKahootOwnerOrThrow(body.kahoot_id, userId);  // :contentReference[oaicite:4]{index=4}
-
-  // 3) tạo challenge
-  const created = await this.repo.createChallenge({
-    kahoot:  { connect: { id: body.kahoot_id } },
-    creator: { connect: { id: userId } },
-    title: body.title,
-    introText: body.intro_text,
-    startAt: body.start_at ? new Date(body.start_at) : null,
-    dueAt:   body.due_at   ? new Date(body.due_at)   : null,
-    status:  body.status ?? 'open',
-    answerOrderRandom:   body.answer_order_random,
-    questionOrderRandom: body.question_order_random,
-    streaksEnabled:      body.streaks_enabled,
-  });
-
-  return { id: created.id, title: created.title, status: created.status, createdAt: created.createdAt };
-}
 
   /** ===========================
    *  UPDATE
@@ -228,6 +247,33 @@ async listAttemptResponses(attemptId: string, query: any, userId: string | null)
   async updateChallenge(id: string, body: UpdateChallengeBodyDTO, userId: string): Promise<any> {
     try {
       await this.repo.assertOwnerOrThrow(id, userId);
+
+      // lấy bản ghi hiện tại để hợp nhất thời gian
+      const cur = await this.repo['prisma'].challenge.findUnique({
+        where: { id },
+        select: { startAt: true, dueAt: true },
+      });
+      if (!cur) throw ChallengeNotFoundException;
+
+      const effStart = body.start_at ? new Date(body.start_at) : cur.startAt;
+      const effDue   = body.due_at   ? new Date(body.due_at)   : cur.dueAt;
+
+      // Nếu client có ý định đụng vào thời gian (1 trong 2 field xuất hiện),
+      // buộc cả hai phải có mặt sau hợp nhất và hợp lệ.
+      if ((body.start_at !== undefined) || (body.due_at !== undefined)) {
+        if (!effStart || !effDue) {
+          throw new BadRequestException({
+            message: 'start_at và due_at là bắt buộc khi cập nhật thời gian',
+            path: ['start_at','due_at'],
+          });
+        }
+        if (!(effStart < effDue)) {
+          throw new BadRequestException({
+            message: 'start_at phải nhỏ hơn due_at',
+            path: ['start_at','due_at'],
+          });
+        }
+      }
 
       const updated = await this.repo.updateChallenge(id, {
         title: body.title,

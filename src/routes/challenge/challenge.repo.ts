@@ -13,6 +13,7 @@ import {
   ChallengeKahootMismatchException,
   CreateChallengeFailedException,
   OpenChallengeFailedException,
+  OpenChallengeTimeExpiredException,
 } from './challenge.error';
 import { isUniqueConstraintPrismaError } from 'src/shared/helper';
 import { Prisma, ChallengeStatus } from '@prisma/client';
@@ -295,6 +296,11 @@ export class ChallengeRepository {
       const kahootId = (data.kahoot as any)?.connect?.id as string | undefined;
       if (!kahootId) throw CreateChallengeFailedException;
 
+      const startAt = (data.startAt as Date | null) ?? null;
+      const dueAt   = (data.dueAt   as Date | null) ?? null;
+      if (!startAt || !dueAt) throw CreateChallengeFailedException;
+      if (!(startAt < dueAt)) throw CreateChallengeFailedException;
+
       const existedOpen = await this.prisma.challenge.findFirst({
         where: { kahootId, status: 'open' },
         select: { id: true },
@@ -541,30 +547,36 @@ export class ChallengeRepository {
   }
 
   async openChallenge(challengeId: string): Promise<{ id: string; status: string }> {
-  // Lấy challenge + kahootId để kiểm tra trùng
-  const cur = await this.prisma.challenge.findUnique({
-    where: { id: challengeId },
-    select: { id: true, status: true, kahootId: true },
-  });
-  if (!cur) throw ChallengeNotFoundException;
+    const cur = await this.prisma.challenge.findUnique({
+      where: { id: challengeId },
+      select: { id: true, status: true, kahootId: true, startAt: true, dueAt: true },
+    });
+    if (!cur) throw ChallengeNotFoundException;
 
-  // Nếu đã open thì thôi (tuỳ bạn chọn throw hay idempotent)
-  if (cur.status === 'open') return { id: cur.id, status: cur.status };
+      if (cur.dueAt && cur.dueAt < new Date()) {
+        throw OpenChallengeTimeExpiredException;
+      }
 
-  // Chỉ cho phép 1 challenge OPEN cho mỗi kahoot
-  const existedOpen = await this.prisma.challenge.findFirst({
-    where: { kahootId: cur.kahootId, status: 'open', NOT: { id: cur.id } },
-    select: { id: true },
-  });
-  if (existedOpen) throw OpenChallengeFailedException;
+    // Nếu đã open thì thôi (tuỳ bạn chọn throw hay idempotent)
+    if (cur.status === 'open') return { id: cur.id, status: cur.status };
 
-  const updated = await this.prisma.challenge.update({
-    where: { id: challengeId },
-    data: { status: 'open' }, // có thể set startAt = new Date() nếu muốn
-    select: { id: true, status: true },
-  });
-  return updated;
-}
+    if (!cur.startAt || !cur.dueAt) throw OpenChallengeFailedException;
+    if (!(cur.startAt < cur.dueAt)) throw OpenChallengeFailedException;
+
+    // Chỉ cho phép 1 challenge OPEN cho mỗi kahoot
+    const existedOpen = await this.prisma.challenge.findFirst({
+      where: { kahootId: cur.kahootId, status: 'open', NOT: { id: cur.id } },
+      select: { id: true },
+    });
+    if (existedOpen) throw OpenChallengeFailedException;
+
+    const updated = await this.prisma.challenge.update({
+      where: { id: challengeId },
+      data: { status: 'open' },
+      select: { id: true, status: true },
+    });
+    return updated;
+  }
 
   async closeChallenge(challengeId: string): Promise<{ id: string; status: string }> {
     const cur = await this.prisma.challenge.findUnique({
@@ -641,5 +653,15 @@ export class ChallengeRepository {
       where: { attemptId },
       select: { questionId: true },
     });
+  }
+
+    // cuối file hoặc gần nhóm utility
+  async bulkCloseExpired(): Promise<number> {
+    const now = new Date();
+    const r = await this.prisma.challenge.updateMany({
+      where: { status: 'open', dueAt: { lt: now } },
+      data:  { status: 'closed' },
+    });
+    return r.count;
   }
 }
