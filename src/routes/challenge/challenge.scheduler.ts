@@ -16,7 +16,7 @@ export class ChallengeScheduler {
   }
 
   // Cron: mỗi phút đóng challenge quá hạn
-  @Cron('*/1 * * * * *')
+  @Cron('*/30 * * * * *')
   async closeExpired() {
     const n = await this.repo.bulkCloseExpired();
     if (n > 0) this.logger.log(`Closed ${n} expired challenges`);
