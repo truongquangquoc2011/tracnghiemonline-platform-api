@@ -623,7 +623,7 @@ export class KahootBankService {
   }
 
   /**
-   * Chỉ cho phép ADMIN.
+   *
    * Tuỳ schema của bạn, mình kiểm tra "mạnh tay" để đỡ lệ thuộc tên field:
    */
   async assertAdmin(userId: string) {
@@ -658,5 +658,52 @@ export class KahootBankService {
     }
 
     return true;
+  }
+
+  /** REVIEW: Lấy danh sách câu hỏi + đáp án của 1 kahoot */
+  async getKahootReview(id: string, userId: string) {
+    try {
+      const kahoot = await this.repo.findKahootById(id);
+      if (!kahoot) throw new NotFoundException('Kahoot not found');
+
+      // ✅ chỉ cho phép owner xem
+      if (kahoot.ownerId !== userId) {
+        throw new ForbiddenException('Forbidden');
+      }
+
+      // Lấy toàn bộ question + answer
+      const questions = await this.prisma.kahootQuestion.findMany({
+        where: { kahootId: id },
+        include: {
+          answers: { orderBy: { orderIndex: 'asc' } },
+        },
+        orderBy: { orderIndex: 'asc' },
+      });
+
+      return {
+        kahoot_id: kahoot.id,
+        title: kahoot.title,
+        questions: questions.map((q) => ({
+          id: q.id,
+          text: q.text,
+          imageUrl: q.imageUrl,
+          videoUrl: q.videoUrl,
+          orderIndex: q.orderIndex,
+          timeLimit: q.timeLimit,
+          pointsMultiplier: q.pointsMultiplier,
+          isMultipleSelect: q.isMultipleSelect,
+          answers: q.answers.map((a) => ({
+            id: a.id,
+            text: a.text,
+            isCorrect: a.isCorrect,
+            shape: a.shape,
+            colorHex: a.colorHex,
+            orderIndex: a.orderIndex,
+          })),
+        })),
+      };
+    } catch (error) {
+      throw error;
+    }
   }
 }
