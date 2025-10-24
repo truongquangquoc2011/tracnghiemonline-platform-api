@@ -20,11 +20,12 @@ import {
   ListKahootQueryDTO,
   CreateKahootBodyDTO,
   UpdateKahootBodyDTO,
+  KahootParamDTO,
 } from './dto/kahoot-bank.dto';
 import { ParseObjectIdPipe } from 'src/shared/pipes/parse-objectid.pipe';
 import { UseInterceptors, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { multerJsonOptions } from "src/shared/utils/multer.json.util";
+import { multerJsonOptions } from 'src/shared/utils/multer.json.util';
 @Controller('kahoots')
 @ApiTags('Kahoot Bank')
 @SkipThrottle({ short: true, long: true })
@@ -43,7 +44,7 @@ export class KahootBankController {
   // Nhận file JSON (khuyến nghị). Nếu muốn mở rộng CSV có thể thêm sau.
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
   @Post(':id/import')
-  @UseInterceptors(FileInterceptor("file", multerJsonOptions()))
+  @UseInterceptors(FileInterceptor('file', multerJsonOptions()))
   async importKahoot(
     @ActiveUser('userId') userId: string,
     @Param('id', ParseObjectIdPipe) id: string,
@@ -55,7 +56,7 @@ export class KahootBankController {
   // Import và TẠO MỚI kahoot từ file JSON
   @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
   @Post('import')
-  @UseInterceptors(FileInterceptor("file", multerJsonOptions()))
+  @UseInterceptors(FileInterceptor('file', multerJsonOptions()))
   async importKahootCreate(
     @ActiveUser('userId') userId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -142,5 +143,16 @@ export class KahootBankController {
   @Post(':id/duplicate')
   duplicate(@ActiveUser('userId') userId: string, @Param('id') id: string) {
     return this.service.duplicateKahoot(userId, id);
+  }
+
+  /** REVIEW KAHOOT – chỉ owner xem được */
+  @Auth([AuthTypes.BEARER, AuthTypes.APIKey], { condition: ConditionGuard.OR })
+  @Get(':id/review')
+  @ApiOperation({ summary: 'Xem toàn bộ câu hỏi + đáp án (owner only)' })
+  async getKahootReview(
+    @ActiveUser('userId') userId: string,
+    @Param() param: KahootParamDTO,
+  ) {
+    return this.service.getKahootReview(param.id, userId);
   }
 }
