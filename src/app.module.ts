@@ -1,7 +1,7 @@
-// app.module.ts
+// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
-import { ConfigModule } from '@nestjs/config'; // <-- thêm
+import { ConfigModule } from '@nestjs/config';
 import { SharedModule } from './shared/shared.module';
 import { AuthModule } from './routes/auth/auth.module';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -22,13 +22,15 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
-    // Đọc .env khi DEV; PRODUCTION (Railway) thì chỉ dùng process.env
+    // ✅ Đọc .env khi DEV, còn production (Railway) thì chỉ dùng process.env
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '.env.local', '.env.development'],
-      ignoreEnvFile:
-        process.env.NODE_ENV === 'production' ||
-        !!process.env.RAILWAY_ENVIRONMENT,
+      envFilePath:
+        process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT
+          ? undefined
+          : ['.env', '.env.local', '.env.development'],
+      cache: true,
+      expandVariables: true,
     }),
 
     SharedModule,
