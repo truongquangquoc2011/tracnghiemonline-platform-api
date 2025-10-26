@@ -1,42 +1,38 @@
-import { Injectable } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
-import { envConfig } from '../config';
-import OTPEmail from 'emails/otp';
+import { Injectable, Logger } from '@nestjs/common';
+import * as sgMail from '@sendgrid/mail';
 import * as ReactDOMServer from 'react-dom/server';
+import OTPEmail from 'emails/otp';
 
 @Injectable()
 export class EmailService {
-  private transporter: nodemailer.Transporter;
+  private readonly logger = new Logger(EmailService.name);
 
   constructor() {
-    this.transporter = nodemailer.createTransport({
-      host: envConfig.emailHost,
-      port: envConfig.emailPort,
-      secure: true,
-      auth: {
-        user: envConfig.otpEmail,
-        pass: envConfig.otpEmailPassword,
-      },
-    });
+    if (process.env.SENDGRID_API_KEY) {
+      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    }
   }
 
-  /**
- * Sends an OTP (One-Time Password) email to the specified address
- * @param payload Object containing recipient email and OTP code
- * @returns The response information from Nodemailer
- */
   async sendOTPEmail(payload: { email: string; code: string }) {
     const subject = 'Xác thực email - NuHoot';
-    const htmlContent = ReactDOMServer.renderToStaticMarkup(
-      <OTPEmail code={payload.code} title={subject} />
+    const html = ReactDOMServer.renderToStaticMarkup(
+      <OTPEmail code={payload.code} title={subject} />,
     );
-    const info = await this.transporter.sendMail({
-      from: `"NuHoot" <${envConfig.otpEmail}>`,
-      to: payload.email,
-      subject,
-      html: htmlContent,
-    });
 
-    return info;
+    const msg = {
+      to: payload.email,
+      from: process.env.MAIL_FROM!,
+      subject,
+      html,
+    };
+
+    try {
+      await sgMail.send(msg);
+      this.logger.log(`✅ OTP email sent to ${payload.email}`);
+      return { message: 'Sent via SendGrid' };
+    } catch (err) {
+      this.logger.error('❌ SendGrid send error:', err.response?.body || err);
+      throw new Error('MAIL_SEND_FAILED');
+    }
   }
 }
