@@ -24,7 +24,7 @@ async function bootstrap() {
     exclude: [
       { path: 'docs', method: RequestMethod.ALL },
       { path: 'docs-json', method: RequestMethod.ALL },
-      { path: 'docs/:path*', method: RequestMethod.ALL }, // thay cho "docs/(.*)"
+      { path: 'docs/*path', method: RequestMethod.ALL }, // ✅ path-to-regexp v6
     ],
   });
 
