@@ -162,7 +162,7 @@ export class AuthService {
       }
 
       // find role
-      
+
       // find name
       const role = await this.authRepository.findRole(user.role);
       if (!role) throw RoleNotFoundException;
@@ -293,7 +293,7 @@ export class AuthService {
     data: CreateOAuthUserDTO,
   ): Promise<OAuthUserType> {
     const { email } = data;
-    let isNewUser = false;  
+    let isNewUser = false;
 
     try {
       const result = await this.prismaService.$transaction(async (tx) => {
@@ -314,9 +314,12 @@ export class AuthService {
         );
 
         // Stage 4: Create new user in transaction and return selected fields
-        const created = await this.authRepository.createOAuthUser(createData, tx);
-          isNewUser = true;
-          return created;
+        const created = await this.authRepository.createOAuthUser(
+          createData,
+          tx,
+        );
+        isNewUser = true;
+        return created;
       });
 
       // Stage 5: Logging after transaction completes successfully
@@ -506,15 +509,10 @@ export class AuthService {
       // Send the OTP code to the user's email
       await retry(
         async () => {
-          const { error } = await this.emailService.sendOTPEmail({
-            email: body.email,
-            code,
-          });
-          if (error) {
-            throw new Error('Failed to send OTP');
-          }
+          await this.emailService.sendOTPEmail({ email: body.email, code });
+          // nếu sendOTPEmail throw => retry sẽ tự chạy lại
         },
-        { retries: CONFIG.EMAIL_RETRY_ATTEMPTS, delay: 1000 },
+        { retries: CONFIG.EMAIL_RETRY_ATTEMPTS, minTimeout: 1000 }, // hoặc delay: 1000
       );
 
       // Return success response
