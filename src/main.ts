@@ -1,47 +1,55 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { Logger } from '@nestjs/common';
+import { Logger, RequestMethod } from '@nestjs/common';
 import { setupSwagger } from './shared/swagger/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
-import { envConfig } from './shared/config';
 import { ParseObjectIdPipe } from './shared/pipes/parse-objectid.pipe';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
   app.set('trust proxy', 'loopback');
   app.enableCors();
-  app.use(helmet());
-  //  Prefix cho API
-  app.setGlobalPrefix('/api/v1');
-  //  Đặt Swagger trước global prefix để route /docs không bị ảnh hưởng
+  app.use(
+    helmet({
+      // Swagger UI có thể bị chặn bởi CSP trong dev
+      contentSecurityPolicy:
+        process.env.NODE_ENV === 'production' ? undefined : false,
+    }),
+  );
+
+  // Đặt global prefix nhưng loại trừ /docs và tài nguyên của Swagger
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      { path: 'docs', method: RequestMethod.ALL },
+      { path: 'docs-json', method: RequestMethod.ALL },
+      { path: 'docs/:path*', method: RequestMethod.ALL }, // thay cho "docs/(.*)"
+    ],
+  });
+
+  // Swagger ở /docs
   setupSwagger(app);
 
-  //  Global pipes
+  // Global pipes
   app.useGlobalPipes(new ParseObjectIdPipe());
 
-  //  Graceful shutdown
+  // Graceful shutdown
   app.enableShutdownHooks();
-  process.on('SIGTERM', () => {
-    console.log('Received SIGTERM, shutting down successfully');
-    app.close().then(() => console.log('NestJS app closed'));
-  });
+  process.on('SIGTERM', () =>
+    app.close().then(() => console.log('NestJS app closed')),
+  );
+  process.on('SIGINT', () =>
+    app.close().then(() => console.log('NestJS app closed')),
+  );
 
-  process.on('SIGINT', () => {
-    console.log('Received SIGINT, shutting down successfully');
-    app.close().then(() => console.log('NestJS app closed'));
-  });
-
-  //  Start server
-  await app.listen(envConfig.port ?? envConfig.portDefault);
-  Logger.log(` Server is running on: ${await app.getUrl()}`);
-  Logger.log(` Swagger is available at: ${await app.getUrl()}/docs`);
+  // Start server (Railway cấp PORT)
+  await app.listen(
+    process.env.PORT ? Number(process.env.PORT) : 8080,
+    '0.0.0.0',
+  );
+  Logger.log(`Server is running on: ${await app.getUrl()}`);
+  Logger.log(`Swagger is available at: ${await app.getUrl()}/docs`);
 }
 
-void (async (): Promise<void> => {
-  try {
-    await bootstrap();
-  } catch (error) {
-    Logger.error(error, 'Error starting server');
-  }
-})();
+bootstrap().catch((error) => Logger.error(error, 'Error starting server'));
